@@ -1,0 +1,82 @@
+---
+title: "Descriptive Analyses"
+author: "Magali Blanco"
+date: "6/11/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+ 
+
+# Missingness
+
+## exposure predictions
+
+```{r}
+
+```
+
+
+## Coverage 
+
+```{r}
+
+```
+
+## Imputed 
+
+* exact    
+* imputed    
+
+```{r}
+
+```
+
+# IPW
+
+* distribution of weights in sur_person
+
+```{r}
+
+```
+
+
+# Location & Prediction Quality
+
+```{r}
+
+```
+
+
+# Exposure from different models
+
+```{r}
+
+```
+
+
+
+# Event ties
+
+```{r}
+
+```
+
+
+
+# Table 1
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
