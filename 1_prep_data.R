@@ -14,12 +14,8 @@ if (!is.null(sessionInfo()$otherPkgs)) {
            detach, character.only=TRUE, unload=TRUE, force=TRUE))
 }
 
-# --> error: have to manually install tidyverse??
-#if (!require("pacman")) install.packages("pacman")
-#pacman::p_load(tidyverse, lubridate)    
-library(tidyverse)
-library(lubridate)
-
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, lubridate)    
 
 set.seed(1)
 
@@ -29,7 +25,7 @@ source("0_functions.R")
 # LOAD DATA
 ######################################################################
 folder_date <- "20220610"
-dt_path <- file.path("Data", folder_date, "issue_001.rda")
+dt_path <- file.path("Data", "Raw", folder_date, "issue_001.rda")
 
 if(file.exists(dt_path)) {
   sur0 <- readRDS(dt_path)
@@ -44,7 +40,6 @@ if(file.exists(dt_path)) {
 ######################################################################
 # CLEAN VARIABLES
 ######################################################################
-
 sur <- sur0 %>%
   #don't use non-final variables
   select(-c(nindx)) %>%
@@ -83,22 +78,7 @@ sur <- sur0 %>%
     # make unknown degree=9 "none" 
     degree = ifelse(degree == 9, 0, degree),
     # combine GED and HS 
-    degree = ifelse(degree %in% c(1:2), 1, degree),
-    
-    #for model stability, the reference categories are those with the largest counts
-    apoe = relevel(factor(apoe), ref = "0"),
-    male = relevel(factor(male), ref = "0"),
-    degree = relevel(factor(degree), ref = "1"),
-    income_cat = relevel(factor(income_cat), ref = "3"),
-    race_white = relevel(factor(race_white), ref = "1"),
-    cal_2yr = relevel(factor(cal_2yr), ref = "1996"), #was 2004 before
-    
-    # exercise_reg = relevel(factor(exercise_reg), ref = "1"),
-    # Hypertension =  relevel(factor(Hypertension), ref = "0"),
-    # Diabetes =  relevel(factor(Diabetes), ref = "0"),
-    # CV_DIS =  relevel(factor(CV_DIS), ref = "0"),
-    # Heart_Dis =  relevel(factor(Heart_Dis), ref = "0"),
-    # bmi =  relevel(factor(bmi), ref = "2"),
+    degree = ifelse(degree %in% c(1:2), 1, degree)
     ) %>%
   #time-varying covariates
   group_by(study_id) %>%
@@ -107,7 +87,10 @@ sur <- sur0 %>%
     dementia_now = ifelse(exposure_year == max(exposure_year), corrected_anydementia, 0),
     ad_now = ifelse(exposure_year == max(exposure_year), ad_nincds, 0),
   ) %>%
-  ungroup()
+  ungroup() %>%
+  add_factor_refs()
+
+# --> why is income coded as 1-6,9 AND A-F (6)? miscoded?
 
 # --> need to change this if use Onset_Age_ACT (1 yr less for cases)? or will only the age change
 # --> if use act onset age, drop last row for cases
@@ -166,7 +149,7 @@ missing_vars_imputed <- apply(sur_person[missing_vars], 2, impute_value) %>%
 sur_person <- cbind(select(sur_person, -missing_vars), missing_vars_imputed )
 sur <- left_join(select(sur, -missing_vars), cbind(study_id=sur_person$study_id, missing_vars_imputed) )
 
-# variables w/o missingnes (for IPW later)
+# variables w/o missingness (for IPW later)
 still_missing <- sur_person %>%
   summarize_all(~sum(is.na(.))) %>%
   pivot_longer(everything(), names_to = "covariate", values_to = "count") %>%
@@ -177,64 +160,60 @@ still_missing <- sur_person %>%
 ######################################################################
 # IPW FOR APOE MISSINGNESS
 ######################################################################
-#paste(paste0("'", names(apoe), "'"), collapse = ", ")
-# c('birthdt', 'intakedt', 'last_visit', 'last_predx_visit', 'birth_cohort', 'birth_cohort_2yr', 'last_predx_visit_age', 'intakeage', 'last_visit_age', 'Onset_Age_ACT', 'male', 'corrected_anydementia', 'corrected_dsmivdx', 'final_nindx', 'cohort', 'income', 'livingsb', 'marital', 'tCESD_Score', 'CESD_Miss', 'CASI_SC', 'casi_valid', 'CASI_IRT_SE', 'casi_ataj', 'casi_att', 'casi_flu', 'casi_lang', 'casi_ltm', 'casi_mmc', 'casi_ori', 'casi_stm', 'visits_db_visit_type', 'employment_status', 'degree', 'discontinue_reason', 'geo_income_65th', 'age_on_income', 'status', 'ad_nincds', 'test', 'balance', 'last_pack_years', 'grip_strength', 'Gait_Aid', 'Gait_Time', 'bmi', 'bmi4', 'CESD_Flag', 'CESD_Score', 'Gait_able', 'avedia', 'avesys', 'COPD', 'Asthma', 'VitaminA', 'VitaminE', 'TIA', 'Fishoil', 'Diabetes', 'casi_irt', 'VitaminC', 'pack_years', 'VitaminMulti', 'CV_DIS', 'Hypertension', 'Heart_Dis', 'Chair_Able', 'htnmed', 'iadl_flag', 'iadl_sum', 'cholmed', 'MI', 'CHF', 'grip_able', 'Stroke', 'ForeFX', 'ForeFx_New', 'gripsmall', 'halfmile', 'heavyhouse', 'lift10lbs', 'stairs', 'IADL_Bills', 'IADL_House', 'IADL_Meals', 'IADL_phone', 'IADL_shopping', 'exercise', 'exercise_reg', 'ratehealth', 'otherfx_new', 'OtherFX', 'smoke', 'HipFX', 'HipFX_New', 'hispanic', 'alcohol', 'alc_problem', 'alc_prob_past', 'SpineFX', 'SpineFX_New', 'one_location', 'tr_med_inc_hshld', 'income_cat', 'race', 'occupation', 'race_white', 'casi_draw', 'education')
-
 apoe <- mutate(sur_person, apoe_available = !is.na(apoe)) %>%
   select(-apoe) %>%
   drop_na() %>%
   mutate_at(c("birth_cohort", "birth_cohort_2yr", "final_nindx", "cohort", "casi_valid", "marital", "livingsb", "iadl_flag", "iadl_sum", "IADL_Bills", "IADL_House", "IADL_Meals", "IADL_phone", "IADL_shopping", "cholmed", "Chair_Able", "Gait_able", "grip_able", "gripsmall", "halfmile", "heavyhouse", "lift10lbs", "stairs", "degree", "race", "htnmed"), as.factor)
 
-                                      # use all columns except study_id and apoe_available as predictors
+# use all columns except study_id and apoe_available as predictors
 lasso_results <- lasso_fn(dt = apoe, x_names = names(apoe)[2:(ncol(apoe)-1)], y_name = "apoe_available", family. = "binomial", lambda. = 0.01) #lambda 0.005
-# lasso_results2 <- lasso_fn(dt = apoe, x_names = names(apoe)[2:(ncol(apoe)-1)], y_name = "apoe_available", family. = "binomial", lambda. = .01)
 
-lasso_results$results
+apoe_missing_cov <- lasso_results$results$cov
 
-# --> update covariates. make dummy variables? model.matrix(~time, data = d)
-# --> ForeFx_New model has all NAs
+# model.matrix creates dummy variables like those selected from lasso
+apoe <- model.matrix(apoe_available~., data=apoe) %>% as.data.frame() %>%
+     cbind(apoe_available=apoe$apoe_available)
 
-# model to predict APOE variable being present
-apoe_m <- apoe %>%
-  glm(apoe_available ~ intakedt+birth_cohort +last_visit_age+ race+ income+alcohol+
-        #Chair_Able+ #don't include b/c some categories have 1 reading only, which leads to unstable weights
-        Gait_Aid+Gait_Time+ grip_strength+CESD_Miss+ForeFX+ForeFx_New+ CASI_SC+casi_ataj+casi_flu+visits_db_visit_type+ degree+discontinue_reason, family = "binomial", data = .) 
+#don't include subcategories w/ few counts (produces very unstable weights; e.g., probability of apoe being available is ~0)
+drop_vars <- apoe %>%
+  group_by(apoe_available) %>%
+  select(apoe_missing_cov) %>%
+  summarize_all(~sum(.)) %>%  
+  select(-apoe_available) %>%
+  apply(.,2, function(x) any(x<=1)) %>% 
+  as.data.frame() %>% rownames_to_column() %>% 
+  filter(.==TRUE) %>%
+  pull(rowname)
 
-# summary(apoe_m)
+apoe_missing_cov <- setdiff(apoe_missing_cov, drop_vars)
 
+apoe_model <- glm(as.formula(paste("apoe_available ~", paste(apoe_missing_cov, collapse = "+"))), family = "binomial", data=apoe)
 # denominator: probability of APOE being present
-apoe_available_prob <- predict(apoe_m, type = "response") 
-
-# --> ERROR: some tiny probabilities. fix model above?
-
+apoe_available_prob <- predict(apoe_model, type = "response") 
 # summary(1/apoe_available_prob) #check that probability isn't Tiny (like when used "race")
 
 #numerator: stabilizer 
-apoe_male_m <- glm(apoe_available ~ male, family = "binomial", data = apoe ) 
+apoe_male_m <- glm(apoe_available ~ male1, family = "binomial", data = apoe) 
 apoe_male_prob <- predict(apoe_male_m, type = "response") 
-# summary(apoe_male_prob)
+# summary(apoe_male_prob/apoe_available_prob)
 
 apoe_wts <- select(apoe, study_id) %>%
   mutate(model_wt = apoe_male_prob/apoe_available_prob)
 # summary(apoe_wts$model_wt)
 
-# --> fix IDs w/o weights...
-
 # add to datasets 
 sur <- left_join(sur, apoe_wts)
 sur_person <- left_join(sur_person, apoe_wts)
 
+######################################################################
+# RECODE FACTORS FOR MODELING
+######################################################################
+sur <- add_factor_refs(sur)
 
-
-
-
-
+# don't need this for sur_person b/c this is just for descriptives 
 
 ######################################################################
-# RECODE FACTORS
+# SAVE DATA
 ######################################################################
-
-
-
-
-
+saveRDS(sur, file.path("Data", "Output", "sur.rda"))
+saveRDS(sur_person, file.path("Data", "Output", "sur_person.rda"))
