@@ -198,15 +198,39 @@ sur %>%
 ## DAG
 
 https://cran.r-project.org/web/packages/ggdag/vignettes/intro-to-dags.html
+```{r}
+# smoking_ca_dag <- dagify(cardiacarrest ~ cholesterol,
+#        cholesterol ~ smoking + weight,
+#        smoking ~ unhealthy,
+#        weight ~ unhealthy,
+#        labels = c("cardiacarrest" = "Cardiac\n Arrest", 
+#                   "smoking" = "Smoking",
+#                   "cholesterol" = "Cholesterol",
+#                   "unhealthy" = "Unhealthy\n Lifestyle",
+#                   "weight" = "Weight"),
+#        latent = "unhealthy",
+#        exposure = "smoking",
+#        outcome = "cardiacarrest")
+# 
+# ggdag(smoking_ca_dag, text = FALSE, use_labels = "label")
+
+```
 
 
 ```{r}
-pacman::p_load(ggdag)
+pacman::p_load(dagitty, ggdag)
 # theme_set(theme_dag())
 
-sur_dag <- 
+sur_dag <-ggdag::dagify(dementia~trap,
+                  
+                  outcome = "dementia",
+                  exposure = "trap",
+                  labels = c("trap" = "TRAP")
+                  
+                  ) 
 
-
+ggdag(sur_dag, text=T, use_labels = "label") + 
+  theme_dag()
 
 ```
 
