@@ -28,7 +28,10 @@ knitr::opts_chunk$set(echo = F, cache=F, cache.comments = F, message = F, warnin
                       tidy.opts=list(width.cutoff=60), tidy=TRUE #, fig.height = 8, fig.width = 8
                       )  
 
-pacman::p_load(kableExtra, tidyverse)    
+pacman::p_load(kableExtra, tidyverse,
+               #DAGs
+               dagitty, ggdag
+               )    
  
 # ggplot settings
 theme_set(theme_bw())
@@ -198,40 +201,95 @@ sur %>%
 ## DAG
 
 https://cran.r-project.org/web/packages/ggdag/vignettes/intro-to-dags.html
-```{r}
-# smoking_ca_dag <- dagify(cardiacarrest ~ cholesterol,
-#        cholesterol ~ smoking + weight,
-#        smoking ~ unhealthy,
-#        weight ~ unhealthy,
-#        labels = c("cardiacarrest" = "Cardiac\n Arrest", 
-#                   "smoking" = "Smoking",
-#                   "cholesterol" = "Cholesterol",
-#                   "unhealthy" = "Unhealthy\n Lifestyle",
-#                   "weight" = "Weight"),
-#        latent = "unhealthy",
-#        exposure = "smoking",
-#        outcome = "cardiacarrest")
-# 
-# ggdag(smoking_ca_dag, text = FALSE, use_labels = "label")
-
-```
-
+ 
+# --> should there not be an arrow from trap --> dementia? 
 
 ```{r}
-pacman::p_load(dagitty, ggdag)
+ 
 # theme_set(theme_dag())
+dag_labels <- c("dementia" = "DEMENTIA",
+                             "trap" = "TRAP",
+                             "bmi" = "BMI",
+                             "cv_health" = "Cardiovascular\nHealth",
+                             "smoking" ="Smoking",
+                             "sur_65" = "Survival\nto ≥65yr",
+                             "apoe" = "APOE",
+                             "sex" = "Sex",
+                             "phys_activity" = "Physical\nActivity",
+                             "year" = "Year",
+                             "ses" = "SES"
+                             )
 
-sur_dag <-ggdag::dagify(dementia~trap,
-                  
-                  outcome = "dementia",
-                  exposure = "trap",
-                  labels = c("trap" = "TRAP")
-                  
-                  ) 
+sur_dag_full <-dagify(dementia~trap+bmi+cv_health+smoking+sur_65+apoe+sex+phys_activity+year+ses,
+                        trap~ses+year+phys_activity,
+                        bmi~trap,
+                        cv_health~bmi+trap+phys_activity+sex+smoking,
+                        smoking~ses,
+                        sur_65~smoking+cv_health+bmi+trap+ses+year+phys_activity+sex,
+                        phys_activity~sex,
+                        outcome = "dementia",
+                        exposure = "trap",
+                        labels = dag_labels)
 
-ggdag(sur_dag, text=T, use_labels = "label") + 
-  theme_dag()
+sur_dag_simple <-dagify(dementia~trap+sur_65+apoe+sex+year+ses,
+                               trap~ses+year,
+                               sur_65~trap+ses+year+sex,
+                               outcome = "dementia",
+                                exposure = "trap",
+                               labels = dag_labels) 
+
+
+final_dag <- sur_dag_full
 
 ```
 
+adjusting for colliders and mediators can introduce bias. Instead, we’ll look at minimally sufficient adjustment sets: sets of covariates that, when adjusted for, block all back-door paths, but include no more or no less than necessary. 
+
+```{r}
+#simple dag
+ggdag(final_dag, text=F, use_labels = "label") + theme_dag()
+ggsave(file.path(image_path, "SI", "simple_dag.png"), width = 10, height = 6)
+
+#adjustment dag
+ggdag_adjustment_set(final_dag, #text=F, use_labels = "label", 
+                     shadow=T,
+                     text_size = 2) +
+  theme_dag()
+ggsave(file.path(image_path, "SI", "adjustment_dag.png"), width = 10, height = 6)
+
+
+```
+
+*Variables are d-connected if there are any active paths between them and d-separated if there are no open paths between them 
+
+* are paths are active or deactive
+
+
+# --> why are trap-dementia d-connected? the way we coded this?
+
+```{r}
+sur_dag_full2 <-dagify(dementia~bmi+cv_health+smoking+sur_65+apoe+sex+phys_activity+year+ses,
+                        trap~ses+year+phys_activity,
+                        bmi~trap,
+                        cv_health~bmi+trap+phys_activity+sex+smoking,
+                        smoking~ses,
+                       # --> don't inlcude year? although life expectancy increases over time
+                       sur_65~smoking+cv_health+bmi+trap+ses+phys_activity+sex+year,
+                        phys_activity~sex,
+                        outcome = "dementia",
+                        exposure = "trap",
+                        labels = dag_labels)
+
+
+# d-relationship
+ggdag_drelationship(sur_dag_full2,  
+                    text_size = 2,
+                    #text=F, use_labels = "label",  
+                    controlling_for = c("ses", "apoe", "year", "sex", "sur_65", "phys_activity"
+                                        )) + 
+  theme_dag()
+ggsave(file.path(image_path, "SI", "relationship_dag.png"), width = 10, height = 6)
+
+
+```
 
