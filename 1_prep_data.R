@@ -46,11 +46,13 @@ sur <- sur0 %>%
   # --> ADD ST 2019
   filter(pollutant %in% c("ufp_20_1k","bc", "no2", "pm25"),
          #drop ppl w/ only baseline visits
-         last_visit > intakedt #801 ppl dropped
+         last_visit > intakedt #801 ppl dropped# last intakedt is thus 2017-08-01 (vs 2018-09-27)
          ) %>%
   mutate(
     #2 yr cal categories except for years 2016-2018
-    cal_2yr = factor(ifelse(exposure_year==2018, 2016, floor(exposure_year/2)*2)),
+    # --> update if get years > 2018
+    #cal_2yr = factor(ifelse(exposure_year==2018, 2016, floor(exposure_year/2)*2)),
+    cal_2yr = factor(floor(exposure_year/2)*2),
     # Unless someone was suspected of X and was evaluated for it, X will be blank. ‘0’ is a confirmation 'no' while blank is a presumed 'no'
     corrected_anydementia = ifelse(is.na(corrected_anydementia), 0, corrected_anydementia),
     corrected_dsmivdx = ifelse(is.na(corrected_dsmivdx), 0, corrected_dsmivdx),
