@@ -18,9 +18,9 @@ editor_options:
 ```{r setup, include=FALSE}
 # Clear workspace of all objects and unload all extra (non-base) packages
 rm(list = ls(all = TRUE))
-if (!is.null(SESsionInfo()$otherPkgs)) {
+if (!is.null(sessionInfo()$otherPkgs)) {
   res <- suppressWarnings(
-    lapply(paste('package:', names(SESsionInfo()$otherPkgs), sep=""),
+    lapply(paste('package:', names(sessionInfo()$otherPkgs), sep=""),
            detach, character.only=TRUE, unload=TRUE, force=TRUE))
 }
 
@@ -44,8 +44,6 @@ theme_set(theme_dag())
 
 # Relationships
  
-# --> should there not be an arrow from TRAP --> dementia? 
-
 ```{r}
 
 dag_labels <- c("Dementia" = "Dementia",
@@ -149,9 +147,14 @@ ggsave(file.path(image_path, "SI", "dag_adjustment_max.png"), width = 10, height
 
 ```
 
-*Variables are d-connected if there are any active paths between them and d-separated if there are no open paths between them 
+```{r}
+# *Variables are d-connected if there are any active paths between them and d-separated if there are no open paths between them 
+# 
+# * TRAP and Dementia are d-connected based on the nodes we included
 
-* TRAP and Dementia are d-connected based on the nodes we included
+```
+
+* proposed adjustment covariates
 
 ```{r}
 # d-relationship
@@ -173,9 +176,9 @@ ggdag_paths(final_dag)
 
 ```
 
-# Other 
 
 ```{r, results="hide"}
+# Other 
 
 tidy_dagitty(final_dag) %>% dag_adjustment_sets()
 
