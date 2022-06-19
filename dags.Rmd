@@ -1,8 +1,18 @@
 ---
 title: "DAGs for TRAP and Dementia"
 author: "Magali Blanco"
-date: "6/18/2022"
-output: html_document
+date: ' `r Sys.time()` '
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_depth: '3'
+    number_sections: true
+    toc_float: true
+    collapsed: false
+    smooth_scroll: false
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -22,6 +32,8 @@ pacman::p_load(tidyverse, dagitty, ggdag)
 
 image_path <- file.path("..", "manuscript", "images")
 
+theme_set(theme_dag())
+
 ```
 
 # Notes
@@ -33,8 +45,7 @@ image_path <- file.path("..", "manuscript", "images")
 # --> should there not be an arrow from trap --> dementia? 
 
 ```{r}
- 
-# theme_set(theme_dag())
+
 dag_labels <- c("dementia" = "DEMENTIA",
                              "trap" = "TRAP",
                              "bmi" = "BMI",
@@ -59,15 +70,17 @@ sur_dag_full <-dagify(dementia~trap+bmi+cv_health+smoking+sur_65+apoe+sex+phys_a
                         exposure = "trap",
                         labels = dag_labels)
 
-sur_dag_simple <-dagify(dementia~trap+sur_65+apoe+sex+year+ses,
-                               trap~ses+year,
-                               sur_65~trap+ses+year+sex,
-                               outcome = "dementia",
-                                exposure = "trap",
-                               labels = dag_labels) 
-
+# sur_dag_simple <-dagify(dementia~trap+sur_65+apoe+sex+year+ses,
+#                                trap~ses+year,
+#                                sur_65~trap+ses+year+sex,
+#                                outcome = "dementia",
+#                                 exposure = "trap",
+#                                labels = dag_labels) 
 
 final_dag <- sur_dag_full
+
+# ? fix the coordinates
+#final_dag <- graphLayout(sur_dag_full, method = "spring")
 
 ```
 
@@ -76,19 +89,56 @@ final_dag <- sur_dag_full
 adjusting for colliders and mediators can introduce bias. Instead, we’ll look at minimally sufficient adjustment sets: sets of covariates that, when adjusted for, block all back-door paths, but include no more or no less than necessary. 
 
 ```{r}
-#simple dag
-ggdag(final_dag, text=F, use_labels = "label") + theme_dag()
-ggsave(file.path(image_path, "SI", "simple_dag.png"), width = 10, height = 6)
+ggdag_status(final_dag)
 
+
+#simple dag
+ggdag(final_dag, text=F, use_labels = "label")  
+ggsave(file.path(image_path, "SI", "dag_simple.png"), width = 10, height = 6)
+
+```
+
+```{r}
 #adjustment dag
+## minimum 
 ggdag_adjustment_set(final_dag, #text=F, use_labels = "label", 
                      shadow=T,
-                     text_size = 2) +
-  theme_dag()
-ggsave(file.path(image_path, "SI", "adjustment_dag.png"), width = 10, height = 6)
+                     text_size = 2, 
+                     type = "minimal" #default
+                     ) + 
+  labs(title = "Minimum adjustment covariates")
+
+#tidy_dagitty(final_dag) %>% dag_adjustment_sets()
+ggsave(file.path(image_path, "SI", "dag_adjustment_min.png"), width = 10, height = 6)
+
+## max
+ggdag_adjustment_set(final_dag, #text=F, use_labels = "label", 
+                     shadow=T,
+                     text_size = 2, 
+                     node_size = 9,
+                     type = "all"  
+                     )+ 
+  labs(title = "All possible adjustment covariates")
+
+#tidy_dagitty(final_dag) %>% dag_adjustment_sets()
+ggsave(file.path(image_path, "SI", "dag_adjustment_max.png"), width = 10, height = 6)
+
+```
+
+```{r}
+ # coordinates( x ) <-
+ #        list( x=c(A=1, B=2, D=3, C=3, F=3, E=4, G=5, H=5, I=5),
+ #            y=c(A=0, B=0, D=1, C=0, F=-1, E=0, G=1, H=0, I=-1) )
+
+
+# coordinates(final_dag)
+
+#graphLayout(final_dag, method = "spring")
 
 
 ```
+
+
 
 *Variables are d-connected if there are any active paths between them and d-separated if there are no open paths between them 
 
@@ -98,28 +148,37 @@ ggsave(file.path(image_path, "SI", "adjustment_dag.png"), width = 10, height = 6
 # --> why are trap-dementia d-connected? the way we coded this?
 
 ```{r}
-sur_dag_full2 <-dagify(dementia~bmi+cv_health+smoking+sur_65+apoe+sex+phys_activity+year+ses,
-                        trap~ses+year+phys_activity,
-                        bmi~trap,
-                        cv_health~bmi+trap+phys_activity+sex+smoking,
-                        smoking~ses,
-                       # --> don't inlcude year? although life expectancy increases over time
-                       sur_65~smoking+cv_health+bmi+trap+ses+phys_activity+sex+year,
-                        phys_activity~sex,
-                        outcome = "dementia",
-                        exposure = "trap",
-                        labels = dag_labels)
+# sur_dag_full2 <-dagify(dementia~bmi+cv_health+smoking+sur_65+apoe+sex+phys_activity+year+ses,
+#                         trap~ses+year+phys_activity,
+#                         bmi~trap,
+#                         cv_health~bmi+trap+phys_activity+sex+smoking,
+#                         smoking~ses,
+#                        # --> don't inlcude year? although life expectancy increases over time
+#                        sur_65~smoking+cv_health+bmi+trap+ses+phys_activity+sex+year,
+#                         phys_activity~sex,
+#                         outcome = "dementia",
+#                         exposure = "trap",
+#                         labels = dag_labels)
 
 
 # d-relationship
-ggdag_drelationship(sur_dag_full2,  
+ggdag_drelationship(final_dag,
+                    #sur_dag_full2,  
                     text_size = 2,
                     #text=F, use_labels = "label",  
                     controlling_for = c("ses", "apoe", "year", "sex", "sur_65", "phys_activity"
-                                        )) + 
-  theme_dag()
-ggsave(file.path(image_path, "SI", "relationship_dag.png"), width = 10, height = 6)
+                                        )) 
+ggsave(file.path(image_path, "SI", "dag_relationship.png"), width = 10, height = 6)
 
 
 ```
+
+
+
+```{r}
+ancestorGraph(final_dag, "trap")
+backDoorGraph(final_dag)
+coordinates(final_dag)
+
+ ```
 
