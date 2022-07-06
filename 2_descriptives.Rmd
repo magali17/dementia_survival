@@ -28,8 +28,7 @@ knitr::opts_chunk$set(echo = F, cache=F, cache.comments = F, message = F, warnin
                       tidy.opts=list(width.cutoff=60), tidy=TRUE #, fig.height = 8, fig.width = 8
                       )  
 
-pacman::p_load(kableExtra, tidyverse
-               )    
+pacman::p_load(kableExtra, tidyverse)    
  
 # ggplot settings
 theme_set(theme_bw())
@@ -41,113 +40,172 @@ image_path <- file.path("..", "manuscript", "images")
 
 # Load files 
 source("0_functions.R")
-sur <- readRDS(file.path("Data", "Output", "sur.rda"))
 sur_person <- readRDS(file.path("Data", "Output", "sur_person.rda"))
-
-```
-
-# Intake date
-
-# --> why is sur0 "2018-09-27" and sur "2017-08-01"?
-
-```{r}
-
+sur0 <- readRDS(file.path("Data", "Output", "sur.rda")) 
 
 ```
 
 
-
-
-# Missingness
-
-## exposure predictions
+# Initial person-years
 
 ```{r}
+# py0 <- sur0 %>%
+#   group_by(pollutant) %>%
+#   summarize(MM_py = sum(!is.na(exp_avg10_yr_MM)),
+#             ST_py = sum(!is.na(exp_avg10_yr_ST)),
+#             SP_py = sum(!is.na(exp_avg10_yr_SP)),
+#             ) 
+# 
+# py0 %>%
+#   kable(caption = "Initial person-years per perllutant") %>%
+#   kable_styling()
+  
+```
 
+
+## Update Data
+
+```{r}
+coverage_threshold <- 0.95
 
 ```
 
-## Imputed 
 
-* Maximum imputation quality of the locations that fall in the relevant period of interest    
-* people without valid addresses in the ST modeing region will have NAs  
-
-# --> just ST region? is this why ST has estimates for e.g., BC, ufp?
+## --> why is coverage sometimes lower for ST than MM?
 
 ```{r}
-sur %>%
-  select(pollutant, exposure_year, imp_qual10_yr, exp_avg10_yr_MM, exp_avg10_yr_ST) %>%
-  pivot_longer(cols = contains("exp_avg"), names_to = "exposure", values_to = "value") %>%
-  drop_na(imp_qual10_yr) %>%
-  group_by(pollutant, exposure) %>%
-  summarize(
-    n = n(),
-    imp0 = mean(imp_qual10_yr==0),
-    imp1 = mean(imp_qual10_yr==1),
-    imp2 = mean(imp_qual10_yr==2),
-    )
+ggplot(data=sur0, aes(x=exp_wks_coverage10_yr_MM, y = exp_wks_coverage10_yr_ST)) + geom_point(alpha=0.1) + geom_abline(slope = 1, intercept = 0, color="yellow") + geom_vline(xintercept = coverage_threshold, color="red")
 
-
-# imp_quality is same for MM & st??
-# sur %>% filter(study_id==1001) %>% select(exposure_year, pollutant, contains("exp_avg"), contains("imp_qual")) %>% View()
-
+prop.table(table(sur0$exp_wks_coverage10_yr_MM <= sur0$exp_wks_coverage10_yr_ST))
 
 ```
 
-## Coverage 
-* Proportion of weeks of desired pollutant exposure with nonmissing location/pollutant info 
-* for MM and ST
 
-#--> aero coverage? do these have pollutant estimates?
+* drop locations with low coverage.   
 
 ```{r}
-sur %>%
-  select(pollutant, exposure_year, exp_wks_coverage10_yr_MM, exp_wks_coverage10_yr_ST) %>%
-  pivot_longer(cols = contains("coverage"), names_to = "coverage", values_to = "value") %>%
-  drop_na(value) %>%  
-  group_by(coverage, pollutant) %>%
-  summarize(
-    n = n(),
-    min = min(value),
-    mean = mean(value),
-    median = median(value),
-    max = max(value)
-    )
-   
-```
-
-exact_coverage
-
-```{r}
-sur %>%
-  select(pollutant, exposure_year, exact_coverage10_yr) %>%
-  drop_na(exact_coverage10_yr) %>%  
+sur <- sur0 %>%
+  # if 10 yr MM threshold is not met, don't use predictions from any other model for that year
+  #mutate_at(vars(starts_with("exp_avg10_yr_")), ~ifelse(exp_wks_coverage10_yr_MM < coverage_threshold, NA, .))
+  mutate(
+    # drop prediction if lower than the threshold
+    exp_avg10_yr_MM = ifelse(exp_wks_coverage10_yr_MM < coverage_threshold, NA, exp_avg10_yr_MM),
+    exp_avg10_yr_ST = ifelse(exp_wks_coverage10_yr_ST < coverage_threshold, NA, exp_avg10_yr_ST),
+    exp_avg10_yr_SP = ifelse(exp_wks_coverage10_yr_SP < coverage_threshold, NA, exp_avg10_yr_SP),
+    exp_avg05_yr_MM = ifelse(exp_wks_coverage05_yr_MM < coverage_threshold, NA, exp_avg05_yr_MM),
+    exp_avg05_yr_ST = ifelse(exp_wks_coverage05_yr_ST < coverage_threshold, NA, exp_avg05_yr_ST),
+    exp_avg05_yr_SP = ifelse(exp_wks_coverage05_yr_SP < coverage_threshold, NA, exp_avg05_yr_SP),
+    exp_avg01_yr_MM = ifelse(exp_wks_coverage01_yr_MM < coverage_threshold, NA, exp_avg01_yr_MM),
+    exp_avg01_yr_ST = ifelse(exp_wks_coverage01_yr_ST < coverage_threshold, NA, exp_avg01_yr_ST),
+    exp_avg01_yr_SP = ifelse(exp_wks_coverage01_yr_SP < coverage_threshold, NA, exp_avg01_yr_SP),
+    
+    # recalculate indicator variables for 10 yr MM
+    exp_wks_coverage10_yr_MM = ifelse(is.na(exp_avg10_yr_MM), NA, .),
+    exact_coverage10_yr_MM = ifelse(is.na(exp_avg10_yr_MM), NA, .),
+    imputed_coverage10_yr_MM = ifelse(is.na(exp_avg10_yr_MM), NA, .),
+    imp_qual10_yr_MM =  ifelse(is.na(exp_avg10_yr_MM), NA, .),
+    ) 
+     
+py1 <- sur %>%
   group_by(pollutant) %>%
-  summarize(
-    n = n(),
-    min = min(exact_coverage10_yr),
-    mean = mean(exact_coverage10_yr),
-    median = median(exact_coverage10_yr),
-    max = max(exact_coverage10_yr)
-    )
+  summarize(MM_py = sum(!is.na(exp_avg10_yr_MM)),
+            ST_py = sum(!is.na(exp_avg10_yr_ST)),
+            SP_py = sum(!is.na(exp_avg10_yr_SP)))
+
+kable(py1, caption = "Remaining person-years per perllutant") %>% kable_styling()
+  
+((py0[2:4]-py1[2:4])/py0[2:4]) %>%
+  kable(caption = "proportion of person-years dropped", digits = 2) %>% kable_styling()
+
 ```
 
-imputed_coverage
+
+# Indicator Variables 
+
+* exp_wks_coverage, imp_quality, exact_coverage, and imputed_coverage
+
+**exp_wks_coverage**.  
+* Proportion of weeks of desired pollutant exposure with nonmissing location/pollutant info
+* for MM and ST regions.
+    * MM is slightly smaller for PM2.5 and NO2, as we would expect 
+* the imputation quality and exact coverage variables are related to ALL of the known address histories, an Not necessarily the address histories that get used in the exposure models. Meaning that they are more useful/better indicators of the quality of the predictions when exposure coverage is high (e.g., 1.0), and less helpful if exposure coverage is low
+* Amanda: "if coverage is low I would expect those rows to be excluded anyway.  If the coverage is low then your exposure for that row will have a really different error structure from exposure windows where coverage is high. In general, for most analyses in e.g. MESA, we exclude any rows where coverage is < 95%." 
+
+**imp_qual10_yr_**.  
+* Maximum imputation quality of the locations that fall in the relevant period of interest  
+* people without valid addresses in the ST modeing region will have NAs     
+
 
 ```{r}
-sur %>%
-  select(pollutant, exposure_year, imputed_coverage10_yr) %>%
-  drop_na(imputed_coverage10_yr) %>%  
-  group_by(pollutant) %>%
-  summarize(
-    n = n(),
-    min = min(imputed_coverage10_yr),
-    mean = mean(imputed_coverage10_yr),
-    median = median(imputed_coverage10_yr),
-    max = max(imputed_coverage10_yr)
-    )
+
+compare_indicator_var("exp_wks_coverage10_yr_", dt = sur) %>%
+  filter(pollutant == first(pollutant),
+         grepl("MM", var)) %>%
+  kable(caption = "distribution of exp_wks_coverage10_yr_", digits = 2) %>%
+  kable_styling()
 
 ```
+
+# --> need to recalculate these w/o values that wont be used b/c low coverage? 
+
+```{r}
+
+compare_indicator_var("exact_coverage10_yr_") %>%
+  filter(pollutant == first(pollutant),
+         grepl("MM", var)) %>%
+  kable(caption = "distribution of exact_coverage10_yr_", digits = 2) %>%
+  kable_styling()
+
+compare_indicator_var("imputed_coverage10_yr_") %>%
+  filter(pollutant == first(pollutant),
+         grepl("MM", var)) %>%
+  kable(caption = "distribution of imputed_coverage10_yr_", digits = 2) %>%
+  kable_styling()
+
+sur %>%
+  select(pollutant, exposure_year, contains("imp_qual10_yr_")) %>%
+  pivot_longer(cols = contains("imp_qual10_yr_"), names_to = "var", values_to = "value") %>%
+  drop_na(value) %>%
+  group_by(pollutant, var) %>%
+  summarize(
+    n = n(),
+    imp0 = mean(value==0),
+    imp1 = mean(value==1),
+    imp2 = mean(value==2),
+    ) %>%
+  ungroup() %>%
+  filter(pollutant == first(pollutant),
+         grepl("MM", var))
+
+```
+
+
+
+```{r}
+# sur2 <- sur %>% select(study_id, birth_cohort, onsetage, intakeage, last_visit_age, Onset_Age_ACT, corrected_anydementia, corrected_dsmivdx, ad_nincds, dementia_now, ad_now,
+#                        
+# exposure_year, age_at_exposure, age_start_exposure, age_end_exposure,
+# starts_with("exp_avg10_yr_"), starts_with("exp_avg05_yr_"), starts_with("exp_avg01_yr_"),
+# exp_wks_coverage10_yr_MM, exact_coverage10_yr_MM, imputed_coverage10_yr_MM, imp_qual10_yr_MM,
+# male, apoe, degree, cal_2yr, bmi4, income_cat, race_white, model_wt
+
+
+```
+
+
+
+
+# Visit dates
+
+first and last visit dates. 
+
+```{r}
+sur_person$intakedt %>% min() 
+sur_person$last_visit %>% max() 
+
+```
+
+
 
 
 
@@ -155,23 +213,47 @@ sur %>%
 
 * distribution of weights in sur_person
 
+* could stratify by covariates 
+
 ```{r}
+sur %>%
+  distinct(study_id, model_wt) %>%
+  pull(model_wt) %>%
+  summarize_var() %>%
+  kable(caption = "distribution of IPW", digits = 2) %>%
+  kable_styling()
 
 ```
 
 
-# Location & Prediction Quality
+# Exposure 
+
+* e.g., from different models
 
 ```{r}
+ap <- sur %>%
+  select(study_id, exposure_year, pollutant, starts_with("exp_avg10_yr_")) %>%
+  pivot_longer(cols = contains("exp_avg10_yr_"), names_to = "var", values_to = "value") %>%
+  drop_na(value)  %>%
+  mutate(
+    var = gsub("exp_avg10_yr_", "", var)
+  )
 
 ```
 
-
-# Exposure from different models
-
 ```{r}
-
+ap %>%
+  #mutate(exposure_year = factor(exposure_year)) %>%
+  ggplot(aes(x=exposure_year, y=value, col=pollutant)) + 
+  #geom_boxplot() + 
+  geom_smooth(aes(linetype=var)) +
+  facet_wrap(~pollutant, scales = "free")
+  
 ```
+
+
+
+
 
 
 
@@ -181,6 +263,15 @@ sur %>%
 
 ```
 
+
+# follow up time 
+
+* mean & range 
+* total person-years 
+
+```{r}
+
+```
 
 
 # Table 1

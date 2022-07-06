@@ -15,7 +15,7 @@ if (!is.null(sessionInfo()$otherPkgs)) {
 }
 
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(tidyverse, lubridate)    
+pacman::p_load(tidyverse, lubridate, kableExtra)    
 
 set.seed(1)
 
@@ -24,7 +24,7 @@ source("0_functions.R")
 ######################################################################
 # LOAD DATA
 ######################################################################
-folder_date <- "20220610"
+folder_date <- "20220623" #"20220610"
 dt_path <- file.path("Data", "Raw", folder_date, "issue_001.rda")
 
 if(file.exists(dt_path)) {
@@ -34,17 +34,15 @@ if(file.exists(dt_path)) {
      saveRDS(sur0, dt_path)
    }
 
-#remove SAS labels
-#labelled::var_label(sur0) <- NULL
-
 ######################################################################
 # CLEAN VARIABLES
 ######################################################################
 sur <- sur0 %>%
   #don't use non-final variables
   select(-c(nindx)) %>%
-  # --> ADD ST 2019
-  filter(pollutant %in% c("ufp_20_1k","bc", "no2", "pm25"),
+  filter(#pollutant %in% c("ufp_20_1k","bc", "no2", "pm25"),
+          grepl("ufp|bc|no2|pm25", pollutant),
+          
          #drop ppl w/ only baseline visits
          last_visit > intakedt #801 ppl dropped# last intakedt is thus 2017-08-01 (vs 2018-09-27)
          ) %>%
@@ -70,8 +68,8 @@ sur <- sur0 %>%
     #dementia_now = ifelse(age_end_exposure < age_last_visit, 0, anydementia),
     ad_nincds = ifelse(final_nindx %in% c(1,2), 1, 0),
     #ad_now = ifelse(age_end_exposure < age_last_visit, 0, ad_nincds),
-    ## filter out invalid casi scores 
-    casi_irt = ifelse(casi_valid ==1, casi_irt, NA),
+    ## filter out invalid casi scores - not using this
+    #casi_irt = ifelse(casi_valid ==1, casi_irt, NA),
     income_cat = ifelse(tr_med_inc_hshld < 35000, 1,  
                         ifelse(tr_med_inc_hshld >= 35000 & tr_med_inc_hshld < 50000, 2,
                                ifelse(tr_med_inc_hshld >= 50000 & tr_med_inc_hshld < 75000, 3, 4))),  
@@ -91,8 +89,6 @@ sur <- sur0 %>%
   ) %>%
   ungroup() %>%
   add_factor_refs()
-
-# --> why is income coded as 1-6,9 AND A-F (6)? miscoded?
 
 # --> need to change this if use Onset_Age_ACT (1 yr less for cases)? or will only the age change
 # --> if use act onset age, drop last row for cases
@@ -204,18 +200,93 @@ apoe_wts <- select(apoe, study_id) %>%
 # summary(apoe_wts$model_wt)
 
 # add to datasets 
-sur <- left_join(sur, apoe_wts)
-sur_person <- left_join(sur_person, apoe_wts)
+sur <- left_join(sur, apoe_wts) %>%
+  ungroup()
+sur_person <- left_join(sur_person, apoe_wts) %>%
+  ungroup()
 
 ######################################################################
 # RECODE FACTORS FOR MODELING
 ######################################################################
 sur <- add_factor_refs(sur)
-
 # don't need this for sur_person b/c this is just for descriptives 
+
+######################################################################
+# COVERAGE VARIABLE
+######################################################################
+coverage_threshold <- 0.95
+
+## --> why is coverage sometimes lower for ST than MM?
+
+# ggplot(data=sur, aes(x=exp_wks_coverage10_yr_MM, y = exp_wks_coverage10_yr_ST)) + geom_point(alpha=0.1) + geom_abline(slope = 1, intercept = 0, color="yellow") + geom_vline(xintercept = coverage_threshold, color="red")
+# 
+# prop.table(table(sur0$exp_wks_coverage10_yr_MM <= sur0$exp_wks_coverage10_yr_ST))
+
+
+sur2 <- sur %>%
+  # if 10 yr MM threshold is not met, don't use predictions from any other model for that year
+  #mutate_at(vars(starts_with("exp_avg10_yr_")), ~ifelse(exp_wks_coverage10_yr_MM < coverage_threshold, NA, .))
+  mutate(
+    # drop prediction if lower than the threshold
+    exp_avg10_yr_MM = ifelse(exp_wks_coverage10_yr_MM < coverage_threshold, NA, exp_avg10_yr_MM),
+    exp_avg10_yr_ST = ifelse(exp_wks_coverage10_yr_ST < coverage_threshold, NA, exp_avg10_yr_ST),
+    exp_avg10_yr_SP = ifelse(exp_wks_coverage10_yr_SP < coverage_threshold, NA, exp_avg10_yr_SP),
+    exp_avg05_yr_MM = ifelse(exp_wks_coverage05_yr_MM < coverage_threshold, NA, exp_avg05_yr_MM),
+    exp_avg05_yr_ST = ifelse(exp_wks_coverage05_yr_ST < coverage_threshold, NA, exp_avg05_yr_ST),
+    exp_avg05_yr_SP = ifelse(exp_wks_coverage05_yr_SP < coverage_threshold, NA, exp_avg05_yr_SP),
+    exp_avg01_yr_MM = ifelse(exp_wks_coverage01_yr_MM < coverage_threshold, NA, exp_avg01_yr_MM),
+    exp_avg01_yr_ST = ifelse(exp_wks_coverage01_yr_ST < coverage_threshold, NA, exp_avg01_yr_ST),
+    exp_avg01_yr_SP = ifelse(exp_wks_coverage01_yr_SP < coverage_threshold, NA, exp_avg01_yr_SP),
+    
+    #recalculate indicator variables for 10 yr MM
+    exp_wks_coverage10_yr_MM = ifelse(is.na(exp_avg10_yr_MM), NA, .),
+    exact_coverage10_yr_MM = ifelse(is.na(exp_avg10_yr_MM), NA, .),
+    imputed_coverage10_yr_MM = ifelse(is.na(exp_avg10_yr_MM), NA, .),
+    imp_qual10_yr_MM =  ifelse(is.na(exp_avg10_yr_MM), NA, .),
+  ) #%>%
+  # mutate_at(vars(exp_wks_coverage10_yr_MM, exact_coverage10_yr_MM, imputed_coverage10_yr_MM, imp_qual10_yr_MM), ~ifelse(is.na(exp_avg10_yr_MM), NA, .))
+  
+   
+
+# initial person-years
+py0 <- sur %>%
+  group_by(pollutant) %>%
+  summarize(MM_py = sum(!is.na(exp_avg10_yr_MM)),
+            ST_py = sum(!is.na(exp_avg10_yr_ST)),
+            SP_py = sum(!is.na(exp_avg10_yr_SP))) 
+
+py0 %>%
+  kable(caption = "Initial person-years per perllutant") %>%
+  kable_styling()
+py1 <- sur2 %>%
+  group_by(pollutant) %>%
+  summarize(MM_py = sum(!is.na(exp_avg10_yr_MM)),
+            ST_py = sum(!is.na(exp_avg10_yr_ST)),
+            SP_py = sum(!is.na(exp_avg10_yr_SP)))
+
+kable(py1, caption = "Remaining person-years per perllutant") %>% kable_styling()
+
+# --> errors out??
+# ((py0[2:4]-py1[2:4])/py0[2:4]) %>%
+#   kable(caption = "proportion of person-years dropped", digits = 2) %>% kable_styling()
+
+######################################################################
+# SUBSET DATA
+######################################################################
+sur3 <- sur2 %>% 
+  select(study_id, birth_cohort, intakeage, last_visit_age, onsetage, Onset_Age_ACT, corrected_anydementia, corrected_dsmivdx, dementia_now, ad_now, age_at_exposure, age_start_exposure, age_end_exposure, exposure_year, pollutant,starts_with("exp_av"),
+    
+    exp_wks_coverage10_yr_MM, exact_coverage10_yr_MM, imputed_coverage10_yr_MM, imp_qual10_yr_MM,
+    
+    male, hispanic, race, race_white, apoe, bmi4, degree, income_cat, cal_2yr
+    
+  )
+
 
 ######################################################################
 # SAVE DATA
 ######################################################################
-saveRDS(sur, file.path("Data", "Output", "sur.rda"))
+# all data
+saveRDS(sur3, file.path("Data", "Output", "sur.rda"))
+saveRDS(sur, file.path("Data", "Output", "sur_all_data.rda"))
 saveRDS(sur_person, file.path("Data", "Output", "sur_person.rda"))

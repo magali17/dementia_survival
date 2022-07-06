@@ -58,9 +58,40 @@ add_factor_refs <- function(dt) {
 
 
 ######################################################################
-#  
+# compare indicator variables across pollutants
 ######################################################################
+# dt = sur
+# var= "exp_wks_coverage10_yr_"
+compare_indicator_var <- function(var, dt = sur) {
+  
+  dt %>%
+    select(pollutant, exposure_year, starts_with(var)) %>%
+    pivot_longer(cols = starts_with(var), names_to = "var", values_to = "value") %>%
+    drop_na(value) %>%  
+    group_by(var, pollutant) %>%
+    summarize(
+      n = n(),
+      min = min(value),
+      mean = mean(value),
+      median = median(value),
+      max = max(value)
+    )
+  
+}
 
-
-
-
+######################################################################
+# summarize a variable
+######################################################################
+summarize_var <- function(var) {
+  dt %>%
+    summarize(
+      N = length(var),
+      Min = min(var),
+      Mean = mean(var),
+      SD = sd(var),
+      Median = median(var),
+      IQR = IQR(var),
+      Max = max(var)
+    )
+  
+}
