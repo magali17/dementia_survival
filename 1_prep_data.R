@@ -20,6 +20,7 @@ pacman::p_load(tidyverse, lubridate, kableExtra)
 set.seed(1)
 
 source("0_functions.R")
+output_data_path <- file.path("Data", "Output", "1_prep_data")
 
 ######################################################################
 # LOAD DATA
@@ -203,7 +204,9 @@ apoe_wts <- select(apoe, study_id) %>%
 sur <- left_join(sur, apoe_wts) %>%
   ungroup()
 sur_person <- left_join(sur_person, apoe_wts) %>%
-  ungroup()
+  ungroup() %>%
+  # drop model weights that won't actually be used in the models b/c apoe is missing
+  mutate(model_wt = ifelse(is.na(apoe), NA, model_wt))
 
 ######################################################################
 # RECODE FACTORS FOR MODELING
@@ -217,76 +220,100 @@ sur <- add_factor_refs(sur)
 coverage_threshold <- 0.95
 
 ## --> why is coverage sometimes lower for ST than MM?
+ggplot(data=sur, aes(x=exp_wks_coverage10_yr_MM, y = exp_wks_coverage10_yr_ST)) + geom_point(alpha=0.1) + geom_abline(slope = 1, intercept = 0, color="yellow") + geom_vline(xintercept = coverage_threshold, color="red")
+ggsave(file.path(output_data_path, "mm_vs_st_coverage.png"), width=6, height=6)
+# prop of time where MM > ST. # 35%
+prop.table(table(sur0$exp_wks_coverage10_yr_MM > sur0$exp_wks_coverage10_yr_ST))
 
-# ggplot(data=sur, aes(x=exp_wks_coverage10_yr_MM, y = exp_wks_coverage10_yr_ST)) + geom_point(alpha=0.1) + geom_abline(slope = 1, intercept = 0, color="yellow") + geom_vline(xintercept = coverage_threshold, color="red")
-# 
-# prop.table(table(sur0$exp_wks_coverage10_yr_MM <= sur0$exp_wks_coverage10_yr_ST))
 
 
-sur2 <- sur %>%
-  # if 10 yr MM threshold is not met, don't use predictions from any other model for that year
-  #mutate_at(vars(starts_with("exp_avg10_yr_")), ~ifelse(exp_wks_coverage10_yr_MM < coverage_threshold, NA, .))
-  mutate(
-    # drop prediction if lower than the threshold
-    exp_avg10_yr_MM = ifelse(exp_wks_coverage10_yr_MM < coverage_threshold, NA, exp_avg10_yr_MM),
-    exp_avg10_yr_ST = ifelse(exp_wks_coverage10_yr_ST < coverage_threshold, NA, exp_avg10_yr_ST),
-    exp_avg10_yr_SP = ifelse(exp_wks_coverage10_yr_SP < coverage_threshold, NA, exp_avg10_yr_SP),
-    exp_avg05_yr_MM = ifelse(exp_wks_coverage05_yr_MM < coverage_threshold, NA, exp_avg05_yr_MM),
-    exp_avg05_yr_ST = ifelse(exp_wks_coverage05_yr_ST < coverage_threshold, NA, exp_avg05_yr_ST),
-    exp_avg05_yr_SP = ifelse(exp_wks_coverage05_yr_SP < coverage_threshold, NA, exp_avg05_yr_SP),
-    exp_avg01_yr_MM = ifelse(exp_wks_coverage01_yr_MM < coverage_threshold, NA, exp_avg01_yr_MM),
-    exp_avg01_yr_ST = ifelse(exp_wks_coverage01_yr_ST < coverage_threshold, NA, exp_avg01_yr_ST),
-    exp_avg01_yr_SP = ifelse(exp_wks_coverage01_yr_SP < coverage_threshold, NA, exp_avg01_yr_SP),
-    
-    #recalculate indicator variables for 10 yr MM
-    exp_wks_coverage10_yr_MM = ifelse(is.na(exp_avg10_yr_MM), NA, .),
-    exact_coverage10_yr_MM = ifelse(is.na(exp_avg10_yr_MM), NA, .),
-    imputed_coverage10_yr_MM = ifelse(is.na(exp_avg10_yr_MM), NA, .),
-    imp_qual10_yr_MM =  ifelse(is.na(exp_avg10_yr_MM), NA, .),
-  ) #%>%
-  # mutate_at(vars(exp_wks_coverage10_yr_MM, exact_coverage10_yr_MM, imputed_coverage10_yr_MM, imp_qual10_yr_MM), ~ifelse(is.na(exp_avg10_yr_MM), NA, .))
-  
-   
-
-# initial person-years
-py0 <- sur %>%
-  group_by(pollutant) %>%
-  summarize(MM_py = sum(!is.na(exp_avg10_yr_MM)),
-            ST_py = sum(!is.na(exp_avg10_yr_ST)),
-            SP_py = sum(!is.na(exp_avg10_yr_SP))) 
-
-py0 %>%
-  kable(caption = "Initial person-years per perllutant") %>%
-  kable_styling()
-py1 <- sur2 %>%
-  group_by(pollutant) %>%
-  summarize(MM_py = sum(!is.na(exp_avg10_yr_MM)),
-            ST_py = sum(!is.na(exp_avg10_yr_ST)),
-            SP_py = sum(!is.na(exp_avg10_yr_SP)))
-
-kable(py1, caption = "Remaining person-years per perllutant") %>% kable_styling()
-
-# --> errors out??
-# ((py0[2:4]-py1[2:4])/py0[2:4]) %>%
-#   kable(caption = "proportion of person-years dropped", digits = 2) %>% kable_styling()
+# drop prediction if lower than a threshold
+sur$exp_avg10_yr_MM[sur$exp_wks_coverage10_yr_MM < coverage_threshold] <- NA
+sur$exp_avg10_yr_ST[sur$exp_wks_coverage10_yr_ST < coverage_threshold] <- NA
+sur$exp_avg10_yr_SP[sur$exp_wks_coverage10_yr_SP < coverage_threshold] <- NA
+sur$exp_avg05_yr_MM[sur$exp_wks_coverage05_yr_MM < coverage_threshold] <- NA
+sur$exp_avg05_yr_ST[sur$exp_wks_coverage05_yr_ST < coverage_threshold] <- NA
+sur$exp_avg05_yr_SP[sur$exp_wks_coverage05_yr_SP < coverage_threshold] <- NA
+sur$exp_avg01_yr_MM[sur$exp_wks_coverage01_yr_MM < coverage_threshold] <- NA
+sur$exp_avg01_yr_ST[sur$exp_wks_coverage01_yr_ST < coverage_threshold] <- NA
+sur$exp_avg01_yr_SP[sur$exp_wks_coverage01_yr_SP < coverage_threshold] <- NA
+#recalculate indicator variables for 10 yr MM
+sur$exp_wks_coverage10_yr_MM[is.na(sur$exp_avg10_yr_MM)] <- NA
+sur$exact_coverage10_yr_MM[is.na(sur$exp_avg10_yr_MM)] <- NA
+sur$imputed_coverage10_yr_MM[is.na(sur$exp_avg10_yr_MM)] <- NA
+sur$imp_qual10_yr_MM[is.na(sur$exp_avg10_yr_MM)] <- NA
 
 ######################################################################
 # SUBSET DATA
 ######################################################################
-sur3 <- sur2 %>% 
-  select(study_id, birth_cohort, intakeage, last_visit_age, onsetage, Onset_Age_ACT, corrected_anydementia, corrected_dsmivdx, dementia_now, ad_now, age_at_exposure, age_start_exposure, age_end_exposure, exposure_year, pollutant,starts_with("exp_av"),
-    
-    exp_wks_coverage10_yr_MM, exact_coverage10_yr_MM, imputed_coverage10_yr_MM, imp_qual10_yr_MM,
-    
-    male, hispanic, race, race_white, apoe, bmi4, degree, income_cat, cal_2yr
-    
-  )
+sur2 <- sur %>% 
+  select(study_id, birth_cohort, intakeage, last_visit_age, onsetage, Onset_Age_ACT, corrected_anydementia, corrected_dsmivdx, dementia_now, ad_now, age_at_exposure, age_start_exposure, age_end_exposure, exposure_year, 
+         pollutant, starts_with("exp_avg10_yr_"), starts_with("exp_avg05_yr_"), starts_with("exp_avg01_yr_"),
+         exp_wks_coverage10_yr_MM, exact_coverage10_yr_MM, imputed_coverage10_yr_MM, imp_qual10_yr_MM,
+    male, hispanic, race, race_white, apoe, bmi4, degree, income_cat, cal_2yr, model_wt
+    ) %>%
+  pivot_longer(starts_with("exp_avg"), names_to = "exp_avg0", values_to = "pollutant_prediction") %>%
+  mutate(
+    model = substr(exp_avg0, nchar(exp_avg0)-1, nchar(exp_avg0)),
+    exposure_duration = ifelse(grepl("10_yr", exp_avg0), 10, ifelse(grepl("05_yr", exp_avg0), 05, ifelse(grepl("01_yr", exp_avg0), 1, NA)))
+  ) %>%
+  select(study_id, age_start_exposure, age_start_exposure, age_end_exposure, exposure_year, pollutant, exp_avg0, exposure_duration, model, pollutant_prediction, contains("coverage|imp_"), everything())
 
+# full dataset that still has rows w/ missing/unused exposure values
+initial_py <- sur2 %>%
+  #filter(grepl("10_yr", exp_avg0)) %>%
+  group_by(pollutant, exp_avg0) %>%
+   
+  summarize(
+    initial_persons = length(unique(study_id[!all(is.na(pollutant_prediction))])),
+    initial_person_years = length(pollutant_prediction[!all(is.na(pollutant_prediction))])
+  ) %>% 
+ filter(initial_persons>0)
+
+# drop person-years without predictions
+sur2 <- sur2 %>% drop_na(pollutant_prediction) 
+# --> note, to look at indicator variables, filter to model == "MM". This value repeates for all other models
+
+# final dataset
+final_py <- sur2 %>%
+  drop_na(pollutant_prediction) %>%
+  # take person-years
+  group_by(pollutant, exp_avg0) %>%
+  summarize(
+    final_persons = length(unique(study_id)),
+    final_person_years = n()) 
+
+# table of initial & final person years 
+left_join(initial_py, final_py) %>%
+  mutate(
+    prop_persons_dropped = (initial_persons - final_persons)/initial_persons,
+    prop_person_years_dropped = (initial_person_years - final_person_years)/initial_person_years
+  ) %>%
+  kable(caption = "Persons & person-years before and after dropping person-years with insufficient coverage", digits = 3) %>% 
+  kable_styling() %>%
+  save_kable(file.path(output_data_path, "sample_person_yrs.pdf"))
+
+######################################################################
+# FINAL INDIVIDUAL LEVEL FOLLOW UP YEARS (WITH EXPOSURE)
+######################################################################
+
+complete_fu_yrs <- sur2 %>%
+  filter(pollutant == first(pollutant),
+         model == first(model),
+         exposure_duration == first(exposure_duration)
+  ) %>% 
+  group_by(study_id) %>%
+  mutate(follow_up_years = n()) %>% 
+  distinct(study_id, follow_up_years)  %>%
+  ungroup()
+
+# left join to complete_fu_yrs to only keep people remaining
+sur_person <- left_join(complete_fu_yrs, sur_person)
 
 ######################################################################
 # SAVE DATA
 ######################################################################
 # all data
-saveRDS(sur3, file.path("Data", "Output", "sur.rda"))
+saveRDS(sur2, file.path("Data", "Output", "sur.rda"))
 saveRDS(sur, file.path("Data", "Output", "sur_all_data.rda"))
 saveRDS(sur_person, file.path("Data", "Output", "sur_person.rda"))

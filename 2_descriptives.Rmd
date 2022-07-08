@@ -28,7 +28,7 @@ knitr::opts_chunk$set(echo = F, cache=F, cache.comments = F, message = F, warnin
                       tidy.opts=list(width.cutoff=60), tidy=TRUE #, fig.height = 8, fig.width = 8
                       )  
 
-pacman::p_load(kableExtra, tidyverse)    
+pacman::p_load(kableExtra, tidyverse, table1)    
  
 # ggplot settings
 theme_set(theme_bw())
@@ -41,86 +41,13 @@ image_path <- file.path("..", "manuscript", "images")
 # Load files 
 source("0_functions.R")
 sur_person <- readRDS(file.path("Data", "Output", "sur_person.rda"))
-sur0 <- readRDS(file.path("Data", "Output", "sur.rda")) 
+sur <- readRDS(file.path("Data", "Output", "sur.rda")) 
 
 ```
 
+# Exposure Quality 
 
-# Initial person-years
-
-```{r}
-# py0 <- sur0 %>%
-#   group_by(pollutant) %>%
-#   summarize(MM_py = sum(!is.na(exp_avg10_yr_MM)),
-#             ST_py = sum(!is.na(exp_avg10_yr_ST)),
-#             SP_py = sum(!is.na(exp_avg10_yr_SP)),
-#             ) 
-# 
-# py0 %>%
-#   kable(caption = "Initial person-years per perllutant") %>%
-#   kable_styling()
-  
-```
-
-
-## Update Data
-
-```{r}
-coverage_threshold <- 0.95
-
-```
-
-
-## --> why is coverage sometimes lower for ST than MM?
-
-```{r}
-ggplot(data=sur0, aes(x=exp_wks_coverage10_yr_MM, y = exp_wks_coverage10_yr_ST)) + geom_point(alpha=0.1) + geom_abline(slope = 1, intercept = 0, color="yellow") + geom_vline(xintercept = coverage_threshold, color="red")
-
-prop.table(table(sur0$exp_wks_coverage10_yr_MM <= sur0$exp_wks_coverage10_yr_ST))
-
-```
-
-
-* drop locations with low coverage.   
-
-```{r}
-sur <- sur0 %>%
-  # if 10 yr MM threshold is not met, don't use predictions from any other model for that year
-  #mutate_at(vars(starts_with("exp_avg10_yr_")), ~ifelse(exp_wks_coverage10_yr_MM < coverage_threshold, NA, .))
-  mutate(
-    # drop prediction if lower than the threshold
-    exp_avg10_yr_MM = ifelse(exp_wks_coverage10_yr_MM < coverage_threshold, NA, exp_avg10_yr_MM),
-    exp_avg10_yr_ST = ifelse(exp_wks_coverage10_yr_ST < coverage_threshold, NA, exp_avg10_yr_ST),
-    exp_avg10_yr_SP = ifelse(exp_wks_coverage10_yr_SP < coverage_threshold, NA, exp_avg10_yr_SP),
-    exp_avg05_yr_MM = ifelse(exp_wks_coverage05_yr_MM < coverage_threshold, NA, exp_avg05_yr_MM),
-    exp_avg05_yr_ST = ifelse(exp_wks_coverage05_yr_ST < coverage_threshold, NA, exp_avg05_yr_ST),
-    exp_avg05_yr_SP = ifelse(exp_wks_coverage05_yr_SP < coverage_threshold, NA, exp_avg05_yr_SP),
-    exp_avg01_yr_MM = ifelse(exp_wks_coverage01_yr_MM < coverage_threshold, NA, exp_avg01_yr_MM),
-    exp_avg01_yr_ST = ifelse(exp_wks_coverage01_yr_ST < coverage_threshold, NA, exp_avg01_yr_ST),
-    exp_avg01_yr_SP = ifelse(exp_wks_coverage01_yr_SP < coverage_threshold, NA, exp_avg01_yr_SP),
-    
-    # recalculate indicator variables for 10 yr MM
-    exp_wks_coverage10_yr_MM = ifelse(is.na(exp_avg10_yr_MM), NA, .),
-    exact_coverage10_yr_MM = ifelse(is.na(exp_avg10_yr_MM), NA, .),
-    imputed_coverage10_yr_MM = ifelse(is.na(exp_avg10_yr_MM), NA, .),
-    imp_qual10_yr_MM =  ifelse(is.na(exp_avg10_yr_MM), NA, .),
-    ) 
-     
-py1 <- sur %>%
-  group_by(pollutant) %>%
-  summarize(MM_py = sum(!is.na(exp_avg10_yr_MM)),
-            ST_py = sum(!is.na(exp_avg10_yr_ST)),
-            SP_py = sum(!is.na(exp_avg10_yr_SP)))
-
-kable(py1, caption = "Remaining person-years per perllutant") %>% kable_styling()
-  
-((py0[2:4]-py1[2:4])/py0[2:4]) %>%
-  kable(caption = "proportion of person-years dropped", digits = 2) %>% kable_styling()
-
-```
-
-
-# Indicator Variables 
+* **results are for 10 year exposure window from the MM model for the first pollutant listed**
 
 * exp_wks_coverage, imp_quality, exact_coverage, and imputed_coverage
 
@@ -137,62 +64,42 @@ kable(py1, caption = "Remaining person-years per perllutant") %>% kable_styling(
 
 
 ```{r}
-
-compare_indicator_var("exp_wks_coverage10_yr_", dt = sur) %>%
-  filter(pollutant == first(pollutant),
-         grepl("MM", var)) %>%
-  kable(caption = "distribution of exp_wks_coverage10_yr_", digits = 2) %>%
+indicator_variables <- c("exp_wks_coverage10_yr_MM",
+                         "exact_coverage10_yr_MM",
+                         "imputed_coverage10_yr_MM"#, "imp_qual10_yr_MM"
+                         )
+lapply(indicator_variables, function(x) {
+  t <- filter(sur, 
+       pollutant == first(pollutant),
+       model == "MM",
+       exposure_duration ==10
+       ) %>%  
+  summary_table(var = x) %>%
+  kable(caption = paste("distribution of", x), digits = 3) %>%
   kable_styling()
+  
+  print(t)
+  
+})
 
-```
 
-# --> need to recalculate these w/o values that wont be used b/c low coverage? 
-
-```{r}
-
-compare_indicator_var("exact_coverage10_yr_") %>%
-  filter(pollutant == first(pollutant),
-         grepl("MM", var)) %>%
-  kable(caption = "distribution of exact_coverage10_yr_", digits = 2) %>%
-  kable_styling()
-
-compare_indicator_var("imputed_coverage10_yr_") %>%
-  filter(pollutant == first(pollutant),
-         grepl("MM", var)) %>%
-  kable(caption = "distribution of imputed_coverage10_yr_", digits = 2) %>%
-  kable_styling()
-
-sur %>%
-  select(pollutant, exposure_year, contains("imp_qual10_yr_")) %>%
-  pivot_longer(cols = contains("imp_qual10_yr_"), names_to = "var", values_to = "value") %>%
-  drop_na(value) %>%
-  group_by(pollutant, var) %>%
+filter(sur, 
+       pollutant == first(pollutant),
+       model == "MM",
+       exposure_duration ==10
+       ) %>%
   summarize(
     n = n(),
-    imp0 = mean(value==0),
-    imp1 = mean(value==1),
-    imp2 = mean(value==2),
-    ) %>%
-  ungroup() %>%
-  filter(pollutant == first(pollutant),
-         grepl("MM", var))
+    imp0 = mean(imp_qual10_yr_MM==0),
+    imp1 = mean(imp_qual10_yr_MM==1),
+    imp2 = mean(imp_qual10_yr_MM==2),
+    ) %>%  
+  kable(caption = "proportion of each imp_qual10_yr_MM value (0-2)", digits = 3) %>%
+  kable_styling()
+  
+  
 
 ```
-
-
-
-```{r}
-# sur2 <- sur %>% select(study_id, birth_cohort, onsetage, intakeage, last_visit_age, Onset_Age_ACT, corrected_anydementia, corrected_dsmivdx, ad_nincds, dementia_now, ad_now,
-#                        
-# exposure_year, age_at_exposure, age_start_exposure, age_end_exposure,
-# starts_with("exp_avg10_yr_"), starts_with("exp_avg05_yr_"), starts_with("exp_avg01_yr_"),
-# exp_wks_coverage10_yr_MM, exact_coverage10_yr_MM, imputed_coverage10_yr_MM, imp_qual10_yr_MM,
-# male, apoe, degree, cal_2yr, bmi4, income_cat, race_white, model_wt
-
-
-```
-
-
 
 
 # Visit dates
@@ -206,20 +113,18 @@ sur_person$last_visit %>% max()
 ```
 
 
-
-
-
 # IPW
 
 * distribution of weights in sur_person
 
-* could stratify by covariates 
+* could stratify by covariates
+
+# --> max weight is very high. reduce predictor covariates?
 
 ```{r}
-sur %>%
-  distinct(study_id, model_wt) %>%
-  pull(model_wt) %>%
-  summarize_var() %>%
+sur_person %>%
+  drop_na(model_wt) %>%
+summary_table(., "model_wt") %>% 
   kable(caption = "distribution of IPW", digits = 2) %>%
   kable_styling()
 
@@ -230,53 +135,125 @@ sur %>%
 
 * e.g., from different models
 
-```{r}
-ap <- sur %>%
-  select(study_id, exposure_year, pollutant, starts_with("exp_avg10_yr_")) %>%
-  pivot_longer(cols = contains("exp_avg10_yr_"), names_to = "var", values_to = "value") %>%
-  drop_na(value)  %>%
-  mutate(
-    var = gsub("exp_avg10_yr_", "", var)
-  )
-
-```
+# --> present differently since primary expsures don't vary over time? just present a table?
 
 ```{r}
-ap %>%
-  #mutate(exposure_year = factor(exposure_year)) %>%
-  ggplot(aes(x=exposure_year, y=value, col=pollutant)) + 
-  #geom_boxplot() + 
-  geom_smooth(aes(linetype=var)) +
-  facet_wrap(~pollutant, scales = "free")
+print("Distribution of air pollution exposure predictions")
+sur %>%
+  filter(exposure_duration ==10) %>%
+  group_by(pollutant, exposure_year, model) %>%
+  alt_boxplot(var = "pollutant_prediction", min_q=0.1, max_q=0.9) %>% 
+  label_pollutants() %>%
+  
+  ggplot(aes(x=exposure_year, fill=model, group=interaction(exposure_year, pollutant, model))) + 
+  geom_boxplot(aes(ymin = Qmin, lower=Q25, middle=Q50, upper=Q75, ymax=Qmax), 
+               stat = "identity") + 
+  facet_wrap(~pollutant, scales="free") + 
+  labs(x= "Exposure Assessment Year",
+       y = "Pollutant Prediction",
+       fill = "Model"
+       )
+  
   
 ```
 
+# --> START HERE
 
-
-
-
-
-
-# Event ties
+# --> exposure table (#s for plot above)
 
 ```{r}
 
 ```
 
 
-# follow up time 
-
-* mean & range 
-* total person-years 
+# --> correlation coefficients of predictions from 2019 MM & 2019 SP?
 
 ```{r}
 
+
 ```
+
+
+
+
 
 
 # Table 1
+n, person-years
+# --> could startify by high/low exposure like Rachel did, but have to pick a pollutant? what have others done?
+
+# --> change birth cohort?
+# --> round %s to whole #s?
 
 ```{r}
+# Table1 tutorials: 
+## https://cran.r-project.org/web/packages/table1/table1.pdf 
+## https://cran.r-project.org/web/packages/table1/vignettes/table1-examples.html
+sur_person$apoe_available <- !is.na(sur_person$apoe)
+  
+t1_data <- list(
+  labels = list(
+    male = "Sex",
+    intakeage = "Age at Intake",
+    follow_up_years = "Follow-Up Years",
+    corrected_anydementia = "All-Cause Dementia",
+    ad_nincds = "Alzheimer's Disease Cases",
+    birth_cohort = "Birth Cohort",
+    race_white = "Race",
+    degree = "Degree",
+    income_cat = "2,000 Census Tract Income at Baseline",
+    apoe = "APOE e4 Allele",
+    apoe_available = "APOE Status Available",
+    model_wt = "IPW for Modeling Cohort"
+    ),
+  units = list(
+    intakeage = "Years"
+     ),
+  categoricals = list(
+    male = list('1' = "Male",
+                '0' = "Female"),
+    corrected_anydementia = list('1' = "Dementia",
+                                 '0' = "No Dementia"
+                                 ),
+    ad_nincds = list('1' = "Alzheimer's Disease",
+                                 '0' = "No Alzheimer's Disease"
+                                 ),
+    birth_cohort = list(sort(unique(sur_person$birth_cohort))),
+    race_white = list('1' = "White",
+                      '0' = "Non-White"
+                      ),
+    degree = list('0' = "None",
+                  '1' = "GED/High School",
+                  '3' = "Bachelor's",
+                  '4' = "Master's",
+                  '5' = "Doctorate",
+                  '6' = "Other"
+                  ),
+    income_cat = list('1' = "<$35,000",
+                      '2' = "$35,000 - <$50,000",
+                      '3' = "$50,000 - <$75,000",
+                      '4' = ">$75,000"
+                      ),
+    apoe = list('1' = "Carriers",
+                '0' = "Non-Carriers"
+                ),
+    apoe_available = list('TRUE' = "APOE Available",
+                          'FALSE' = "APOE Not Available"
+                          )
+    )
+  ) %>%
+  t1read(sur_person, .) 
+
+# Main Table 1
+t1_data %>%
+  table1(~intakeage + follow_up_years + male +corrected_anydementia + ad_nincds + race_white +degree + income_cat + apoe + model_wt + birth_cohort , data=.)
+
+
+# SI, by APOE STATUS/who is in the mode
+t1_data %>%
+  table1(~intakeage + follow_up_years + male +corrected_anydementia + ad_nincds + race_white +degree + income_cat + apoe + model_wt + birth_cohort | apoe_available, data=.)
+
+
 
 ```
 
@@ -285,5 +262,14 @@ ap %>%
 
 
 
-# SI
+# Prediction Maps
+
+# --> or reference ACT-TRAP?
+
+```{r}
+
+
+```
+
+ 
 

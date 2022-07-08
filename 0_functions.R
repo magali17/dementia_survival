@@ -57,6 +57,8 @@ add_factor_refs <- function(dt) {
   }
 
 
+
+# --> DELETE FN?
 ######################################################################
 # compare indicator variables across pollutants
 ######################################################################
@@ -82,8 +84,11 @@ compare_indicator_var <- function(var, dt = sur) {
 ######################################################################
 # summarize a variable
 ######################################################################
-summarize_var <- function(var) {
+
+summary_table <- function(dt, var) {
+
   dt %>%
+    rename(var = var) %>%
     summarize(
       N = length(var),
       Min = min(var),
@@ -95,3 +100,61 @@ summarize_var <- function(var) {
     )
   
 }
+
+###############################################################################################################
+# ALTERNATIVE BOXPLOTS
+###############################################################################################################
+# function returns a boxplot with different whisker definitions to avoid plotting extreme/outlier points
+alt_boxplot <- function(df, var, min_q=0.025, max_q=0.975){
+  df <- df %>%
+    rename(var = var) %>%
+    summarize(
+      N = n(),
+      Min = min(var),
+      Qmin = quantile(var, min_q),
+      Q25 = quantile(var, 0.25),
+      Q50 = quantile(var, 0.50),
+      Q75 = quantile(var, 0.75),
+      Qmax = quantile(var, max_q),
+      Max = max(var)
+    )
+  
+  names(df)[names(df)==var] <- var
+  
+  return(df) 
+  
+}
+
+######################################################################
+# LABEL POLLUTANTS
+######################################################################
+# fn relabels pollutants, adds units
+
+label_pollutants <- function(dt) {
+  dt <- dt %>%
+    mutate(pollutant = case_when(
+      pollutant == "ufp_10_42" ~ "PNC (pt/cm3), NanoScan",
+      pollutant == "ufp_20_1k" ~ "PNC (pt/cm3), P-TRAK",
+      pollutant == "ufp_36_1k" ~ "PNC (pt/cm3), Screened P-TRAK",
+      pollutant == "ufp_10_70" ~ "PNC (pt/cm3), DiSCmini",
+      pollutant == "bc" ~ "BC (ng/m3)",
+      pollutant == "no2" ~ "NO2 (ppb)",
+      pollutant == "pm25" ~ "PM2.5 (ug/m3)",
+      pollutant == "co2" ~ "CO2 (ppm)"
+      ),
+      pollutant = factor(pollutant, levels = c("PNC (pt/cm3), NanoScan",
+                                               "PNC (pt/cm3), P-TRAK",
+                                               "PNC (pt/cm3), Screened P-TRAK",
+                                               "PNC (pt/cm3), DiSCmini",
+                                               "BC (ng/m3)",
+                                               "NO2 (ppb)",
+                                               "PM2.5 (ug/m3)",
+                                               "CO2 (ppm)"))
+      )
+  return(dt)
+}
+
+
+
+
+
