@@ -45,7 +45,6 @@ theme_set(theme_dag())
 # Relationships
  
 ```{r}
-
 dag_labels <- c("Dementia" = "Dementia",
                              "TRAP" = "TRAP",
                              "BMI" = "BMI",
@@ -69,8 +68,8 @@ full_dag <-dagify(Dementia~TRAP+BMI+CVHealth+Smoking+Surv65+APOE+Sex+PhysAct+Yea
                         outcome = "Dementia",
                         exposure = "TRAP",
                         labels = dag_labels,
-                      coords = list(x =c(Dementia = 13,
-                                         TRAP =1,
+                      coords = list(x =c(TRAP =1,
+                                         Dementia = 13,
                                          BMI=2,
                                          CVHealth=2,
                                          Smoking=5,
@@ -82,18 +81,18 @@ full_dag <-dagify(Dementia~TRAP+BMI+CVHealth+Smoking+Surv65+APOE+Sex+PhysAct+Yea
                                          SES=12,
                                          Smoking=12
                                          ),
-                                    y = c(Dementia = 4,
-                                         TRAP =4,
-                                         BMI=2,
-                                         CVHealth=6,
-                                         Smoking=1,
-                                         Surv65=7,
-                                         APOE=1,
-                                         Sex=7,
-                                         PhysAct=1,
-                                         Year=6,
-                                         SES=2,
-                                         Smoking=7)))
+                                    y = c(TRAP =4,
+                                          Dementia = 4,
+                                          BMI=2,
+                                          CVHealth=6,
+                                          Smoking=1,
+                                          Surv65=7,
+                                          APOE=1,
+                                          Sex=7,
+                                          PhysAct=1,
+                                          Year=6,
+                                          SES=2,
+                                          Smoking=7)))
 
 # ggdag_status(full_dag)
 
