@@ -220,12 +220,11 @@ sur <- add_factor_refs(sur)
 coverage_threshold <- 0.95
 
 ## --> why is coverage sometimes lower for ST than MM?
+
 ggplot(data=sur, aes(x=exp_wks_coverage10_yr_MM, y = exp_wks_coverage10_yr_ST)) + geom_point(alpha=0.1) + geom_abline(slope = 1, intercept = 0, color="yellow") + geom_vline(xintercept = coverage_threshold, color="red")
 ggsave(file.path(output_data_path, "mm_vs_st_coverage.png"), width=6, height=6)
 # prop of time where MM > ST. # 35%
 prop.table(table(sur0$exp_wks_coverage10_yr_MM > sur0$exp_wks_coverage10_yr_ST))
-
-
 
 # drop prediction if lower than a threshold
 sur$exp_avg10_yr_MM[sur$exp_wks_coverage10_yr_MM < coverage_threshold] <- NA

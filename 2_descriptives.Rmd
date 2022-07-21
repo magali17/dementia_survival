@@ -28,7 +28,11 @@ knitr::opts_chunk$set(echo = F, cache=F, cache.comments = F, message = F, warnin
                       tidy.opts=list(width.cutoff=60), tidy=TRUE #, fig.height = 8, fig.width = 8
                       )  
 
-pacman::p_load(kableExtra, tidyverse, table1)    
+pacman::p_load(kableExtra, tidyverse, table1,
+               ggpubr, #stat_cor() for ggplot
+               GGally, # ggpairs()
+               gggcorrplot # ggcorrplot()
+               )    
  
 # ggplot settings
 theme_set(theme_bw())
@@ -135,7 +139,27 @@ summary_table(., "model_wt") %>%
 
 * e.g., from different models
 
-# --> present differently since primary expsures don't vary over time? just present a table?
+## Table
+
+```{r}
+sur %>%
+  group_by(pollutant, exposure_duration, model) %>%
+  summary_table("pollutant_prediction") %>%
+  mutate_at(vars(Min:Max), ~ifelse(grepl("ufp|bc", pollutant),
+                                   format(., digits=0, scientific = F, big.mark = ","),
+                                   format(., digits=2, scientific = F, big.mark = ",")
+                                   )) %>%
+  mutate_at(vars(N), ~format(., big.mark=",")) %>%
+  label_pollutants() %>%
+  filter(exposure_duration==10) %>% #select(-exposure_duration) %>%
+  kable(caption = "Distribution of pollutant predictions for the cohort") %>%
+  kable_styling()
+
+```
+
+## Boxplots
+
+# --> for PM2.5, why doesn't MM & SP go back as far as ST? 
 
 ```{r}
 print("Distribution of air pollution exposure predictions")
@@ -154,24 +178,164 @@ sur %>%
        fill = "Model"
        )
   
+ggsave(file.path(image_path, "SI", "exposure_over_time_boxplots.png"), height = 8, width = 8)
   
 ```
 
-# --> START HERE
 
-# --> exposure table (#s for plot above)
+# Correlations
+
+* note, not all rows have predictions for all pollutants b/c:
+   * MM is dropped more often than ST b/c of low exp_wks_coverage
+
+# --> why are MM and SP sometimes dropped but not ST? Don't SP and ST have the same spatial coverage?
 
 ```{r}
+cor_df <- sur %>%
+  filter(exposure_duration==10) %>%
+  label_pollutants() %>%
+  mutate(#pollutant = gsub(" ", "\n", pollutant),
+         pollutant = paste(pollutant, model)
+         ) %>% 
+  select(study_id, exposure_year,  pollutant,  pollutant_prediction,
+         exp_wks_coverage10_yr_MM
+         ) %>% 
+  spread(pollutant, pollutant_prediction) %>% 
+  select(contains(c(#"PNC", 
+                    "NanoScan",
+                    "BC", "NO2", "PM2.5"))) %>% 
+  # not all rows have predictions for all pollutants b/c MM is dropped more often than ST due to low exp_wks_coverage
+  
+  # --> why are MM and SP sometimes dropped but not ST? Don't SP and ST have the same spatial coverage?
+  
+  drop_na() 
+
+
+```
+
+table
+
+# --> why is e.g., MM No2 so strongly correlated w/ ST No2??
+
+```{r}
+
+cor(cor_df) %>%
+  as.data.frame() %>%
+  mutate_all(~round(.,2)) %>%
+  rownames_to_column() %>%
+  pivot_longer(cols = -rowname) %>%
+  
+  ggplot(aes(x=rowname, y=name, fill=value)) + 
+  geom_bin_2d() + 
+  geom_text(aes(label=value)) + 
+  
+  scale_fill_gradient2(
+  low = "red",
+  mid = "white",
+  high = "green",
+  midpoint = 0.5) +
+  theme(axis.text.x = element_text(angle = 30, #vjust = 0.5, 
+                                   hjust=1)) + 
+  labs(x="", y="", fill="R")
+
+  
+```
+
+
+# --> START HERE. upadte for all pollutants?
+
+```{r}
+print("Comparison of 10 year exposure predictions from MM and ST models")
+
+sur %>%
+  filter(exposure_duration==10) %>%
+  label_pollutants() %>%
+  select(study_id, exposure_year,  model, pollutant,  pollutant_prediction) %>% 
+  pivot_wider(names_from = model, values_from = pollutant_prediction) %>%
+  pivot_longer(cols = c(SP, ST),  names_to = "ST_model", values_to="ST_value") %>%
+  drop_na() %>%
+  
+  ggplot(aes(x=MM, y=ST_value, col=ST_model)) + 
+  facet_wrap_equal(ST_model~pollutant, scales="free") +
+  geom_point(alpha=0.01, shape=21) +
+  geom_smooth() + 
+  geom_abline(slope = 1, intercept = 0, alpha=0.5, linetype=2) +
+  theme(aspect.ratio=1) +
+  #add pearson correlation
+  stat_cor(aes(label = ..r.label..)) + 
+  labs(
+    x = "Mobile Monitoring Prediction",
+    y = "Spatio-Temporal Prediction"
+  )
+
+ggsave(file.path(image_path, "SI", "mm_sp_st_comparison.png"), height = 8, width = 8)
+
 
 ```
 
 
-# --> correlation coefficients of predictions from 2019 MM & 2019 SP?
+test
 
 ```{r}
 
+ggpairs(cor_df, title="correlogram with ggpairs()") 
+ggsave(file.path(image_path, "SI", "mm_sp_st_comparison2.png"), height = 8, width = 8)
+
 
 ```
+
+
+
+```{r}
+
+#function colors upper panel by correlation value
+# source: https://stackoverflow.com/questions/45873483/ggpairs-plot-with-heatmap-of-correlation-values 
+pacman::p_load(GGally) #ggpairs()
+color_cor <- function(data, mapping, method="p", use="pairwise", alpha=0.5, ...){
+  # grab data
+  x <- eval_data_col(data, mapping$x)
+  y <- eval_data_col(data, mapping$y)
+  
+  # calculate correlation
+  corr <- cor(x, y, method=method, use=use)
+  
+  # calculate colour based on correlation value
+  colFn <- colorRampPalette(c("blue", "white", "red"), interpolate ='spline')
+  fill <- colFn(100)[findInterval(corr, seq(-1, 1, length=100))]
+  
+  ggally_cor(data = data, mapping = mapping, 
+             #don't include stars if correlations "sign"
+             stars = FALSE,
+             digits=2,
+             ...) + 
+    theme_void() +
+    theme(panel.background = element_rect(fill=alpha(fill, alpha)))
+}
+ 
+```
+
+
+plot 
+
+**takes long time to run**
+
+```{r, eval=F}
+print("10-year average ollutant prediction correlations (R)")
+
+# correlation plot
+ggpairs(cor_df, 
+        upper = list(continuous = color_cor),
+        lower = list(continuous = wrap("smooth_loess", alpha=0.2))) +  
+  scale_x_continuous(guide = guide_axis(check.overlap = TRUE))
+
+ggsave(file.path(image_path, "SI", "pollutant_correlations.png"), height = 11, width = 11)
+
+```
+
+
+
+
+
 
 
 
@@ -179,9 +343,9 @@ sur %>%
 
 
 # Table 1
-n, person-years
-# --> could startify by high/low exposure like Rachel did, but have to pick a pollutant? what have others done?
-
+ 
+# --> could startify by high/low exposure for each pollutant, like Rachel 
+#--> add age range
 # --> change birth cohort?
 # --> round %s to whole #s?
 
@@ -264,7 +428,7 @@ t1_data %>%
 
 # Prediction Maps
 
-# --> or reference ACT-TRAP?
+# --> compare ST to MM area 
 
 ```{r}
 
