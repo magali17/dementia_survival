@@ -31,7 +31,7 @@ knitr::opts_chunk$set(echo = F, cache=F, cache.comments = F, message = F, warnin
 pacman::p_load(tidyverse, dagitty, ggdag)
 
 image_path <- file.path("..", "manuscript", "images")
-if(!dir.exists(file.path(image_path, "SI"))) {dir.create(file.path(image_path, "SI"))}
+if(!dir.exists(file.path(image_path, "Other"))) {dir.create(file.path(image_path, "Other"))}
 
 theme_set(theme_dag())
 
@@ -44,13 +44,15 @@ theme_set(theme_dag())
 
 # Relationships
  
+* Sara Adar suggested we don't include physical activity as a confounder b/c it may be impacted by dementia incidence
+
 ```{r}
 dag_labels <- c("Dementia" = "Dementia",
                              "TRAP" = "TRAP",
                              "BMI" = "BMI",
                              "CVHealth" = "Cardiovascular\nHealth",
                              "Smoking" ="Smoking",
-                             "Surv65" = "Survival\nto ≥65yr",
+                             #"Surv65" = "Survival\nto ≥65yr",
                              "APOE" = "APOE",
                              "Sex" = "Sex",
                              "PhysAct" = "Physical\nActivity",
@@ -58,25 +60,25 @@ dag_labels <- c("Dementia" = "Dementia",
                              "SES" = "SES"
                              )
 
-full_dag <-dagify(Dementia~TRAP+BMI+CVHealth+Smoking+Surv65+APOE+Sex+PhysAct+Year+SES,
-                        TRAP~SES+Year+PhysAct,
+full_dag <-dagify(Dementia~TRAP+BMI+CVHealth+Smoking+APOE+Sex+Year+SES, #+PhysAct+Surv65
+                        TRAP~SES+Year,#+PhysAct,
                         BMI~TRAP,
-                        CVHealth~BMI+TRAP+PhysAct+Sex+Smoking,
+                        CVHealth~BMI+TRAP+Sex+Smoking,#+PhysAct
                         Smoking~SES,
-                        Surv65~Smoking+CVHealth+BMI+TRAP+SES+Year+PhysAct+Sex,
-                        PhysAct~Sex,
+                        #Surv65~Smoking+CVHealth+BMI+TRAP+SES+Year+Sex,#+PhysAct
+                        #PhysAct~Sex,
                         outcome = "Dementia",
                         exposure = "TRAP",
                         labels = dag_labels,
                       coords = list(x =c(TRAP =1,
                                          Dementia = 13,
-                                         BMI=2,
-                                         CVHealth=2,
-                                         Smoking=5,
-                                         Surv65=5,
+                                         BMI=3,
+                                         CVHealth=4,
+                                         Smoking=7,
+                                         #Surv65=5,
                                          APOE=14,
                                          Sex=9,
-                                         PhysAct=9,
+                                         #PhysAct=9,
                                          Year=12,
                                          SES=12,
                                          Smoking=12
@@ -84,12 +86,12 @@ full_dag <-dagify(Dementia~TRAP+BMI+CVHealth+Smoking+Surv65+APOE+Sex+PhysAct+Yea
                                     y = c(TRAP =4,
                                           Dementia = 4,
                                           BMI=2,
-                                          CVHealth=6,
+                                          CVHealth=7,
                                           Smoking=1,
-                                          Surv65=7,
+                                          #Surv65=7,
                                           APOE=1,
                                           Sex=7,
-                                          PhysAct=1,
+                                          #PhysAct=1,
                                           Year=6,
                                           SES=2,
                                           Smoking=7)))
@@ -109,7 +111,7 @@ node_size <- 23
 #simple dag
 ggdag_status(final_dag, node_size = node_size-2) #+ guides(color = FALSE) 
 
-ggsave(file.path(image_path, "SI", "dag_simple.png"), width = 10, height = 6)
+ggsave(file.path(image_path, "Other", "dag_simple.png"), width = 10, height = 6)
 
 ```
 
@@ -126,7 +128,7 @@ ggdag_adjustment_set(final_dag, #text=F, use_labels = "label",
                      ) + 
   labs(title = "Minimum adjustment covariates")
 
-ggsave(file.path(image_path, "SI", "dag_adjustment_min.png"), width = 10, height = 6)
+ggsave(file.path(image_path, "Other", "dag_adjustment_min.png"), width = 10, height = 6)
 
 ```
 
@@ -142,7 +144,7 @@ ggdag_adjustment_set(final_dag, #text=F, use_labels = "label",
                      )+ 
   labs(title = "All possible adjustment covariates")
 
-ggsave(file.path(image_path, "SI", "dag_adjustment_max.png"), width = 10, height = 6)
+ggsave(file.path(image_path, "Other", "dag_adjustment_max.png"), width = 10, height = 6)
 
 ```
 
@@ -161,10 +163,10 @@ ggdag_drelationship(final_dag,
                     #text_size = 2,
                     node_size = node_size,
                     #text=F, use_labels = "label",  
-                    controlling_for = c("SES", "APOE", "Year", "Sex", "Surv65", "PhysAct"
+                    controlling_for = c("SES", "APOE", "Year", "Sex"#, "Surv65", "PhysAct"
                                         )) + guides(color = FALSE) 
 
-ggsave(file.path(image_path, "SI", "dag_relationship.png"), width = 10, height = 6)
+ggsave(file.path(image_path, "Other", "dag_relationship.png"), width = 10, height = 6)
 
 ```
 

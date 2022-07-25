@@ -31,7 +31,7 @@ knitr::opts_chunk$set(echo = F, cache=F, cache.comments = F, message = F, warnin
 pacman::p_load(kableExtra, tidyverse, table1,
                ggpubr, #stat_cor() for ggplot
                GGally, # ggpairs()
-               gggcorrplot # ggcorrplot()
+               ggmap, sf, ggspatial, cowplot #mapping...adding scales, N arrows
                )    
  
 # ggplot settings
@@ -41,14 +41,95 @@ theme_update(legend.position = "bottom")
 set.seed(1)
 
 image_path <- file.path("..", "manuscript", "images")
-
+ 
 # Load files 
 source("0_functions.R")
 sur_person <- readRDS(file.path("Data", "Output", "sur_person.rda"))
 sur <- readRDS(file.path("Data", "Output", "sur.rda")) 
 
+## mapping
+lat_long_crs <- 4326  
+m_crs <- 32148 #meters
+
+monitoring_area <- readRDS(file.path("~", "OneDrive - UW", "Documents", "Post Doc", "Study Projects", "ACT TRAP MM", "1. Our Campaign",  "Our Campaign R", "Data", "Output", "GIS", "monitoring_area_shp.rda")) 
+st_area <- read_sf(file.path("~", "OneDrive - UW", "Documents", "School", "PhD", "Dissertation", "GIS", "Shapefiles", "Study area", "Spatiotemporal", "st_area.shp")) #%>% st_transform(project_crs)
+
 ```
 
+
+# Prediction Maps
+
+```{r}
+#make box little bigger than monitoring area
+bbox <- st_bbox(st_transform(st_buffer(st_transform(st_area, m_crs), 40e3), lat_long_crs))
+names(bbox) <- c("left", "bottom", "right", "top")
+map0 <- suppressMessages(get_stamenmap(bbox = bbox, zoom = 11, #14, #11, 
+                                       maptype = "toner-lite" #"terrain" #
+                                       )) %>%
+  ggmap(ggmap = ., darken = c(0.5, "white")) + theme_void()
+
+```
+
+
+```{r}
+main_map <- map0 + 
+  geom_sf(data=st_area, inherit.aes = F, aes(fill = "Spatiotemporal"), 
+          alpha=0.1, lwd = 0.1,) + 
+  geom_sf(data=monitoring_area, inherit.aes = F, aes(fill = "Mobile Monitoring"), 
+          alpha=0.1, lwd = 0.1) +
+  
+  annotation_scale(location = "tl") +
+  annotation_scale(location = "tl", unit_category ="imperial", pad_y = unit(0.55, "cm")) +
+  annotation_north_arrow(location = "tl", which_north = "true", pad_y = unit(0.5, "in"),
+                           style = north_arrow_fancy_orienteering) +
+  theme_bw() +
+  theme(
+    legend.justification=c(1,1),  
+    legend.position=c(1,1),  
+    legend.background =  element_blank()
+    ) +
+    coord_sf(expand = F) +
+  #add attribution/reference to bottom left
+    geom_text(aes(x=-Inf, y=-Inf, hjust=-0.01, vjust=-0.3, 
+                  label= "Map tiles by Stamen Design, under CC BY 3.0. \nData by OpenStreetMap, under ODbL."), size=2.5) +
+  labs(x = "Longitude",
+       y = "Latitude",
+       fill = "Prediction Area"
+       ) 
+
+# inste map 
+# example code: https://geocompr.github.io/post/2019/ggplot2-inset-maps/ 
+
+data("us_states", package = "spData")
+
+wa_map <- us_states %>%
+  filter(NAME == "Washington") %>%
+  st_transform(lat_long_crs)
+
+wa_centroid <- st_coordinates(st_centroid(wa_map))
+
+inset_map <- ggplot() + 
+  geom_sf(data=wa_map, fill = "white", alpha=0.5) + 
+  geom_sf(data=st_area, aes(fill = "Spatiotemporal"), lwd = 0.1, alpha = 0.2, show.legend = F) +
+  geom_sf(data=monitoring_area, aes(fill = "Mobile Monitoring"), lwd = 0.1, alpha = 0.2, show.legend = F) +
+  theme_void() + 
+  #add "WA" label
+  geom_text(aes(x = wa_centroid[1], y = wa_centroid[2]), label = "WA", size=4)
+  
+# combine using cowplot
+ggdraw() +
+  draw_plot(main_map) +
+  draw_plot(inset_map, 
+            # The dist along a (0,1) x- or y- axis to draw the left/bottom edge of the plot
+            x = 0.65, y = 0.005, 
+            # The width and height of the plot as proportion of the entire ggdraw object
+            width = 0.23, height = 0.23)
+
+ggsave(file.path(image_path, "SI", "monitoring_map.jpg"), width = 6, height = 8)
+
+```
+
+ 
 # Exposure Quality 
 
 * **results are for 10 year exposure window from the MM model for the first pollutant listed**
@@ -67,7 +148,7 @@ sur <- readRDS(file.path("Data", "Output", "sur.rda"))
 * people without valid addresses in the ST modeing region will have NAs     
 
 
-```{r}
+```{r, results = "asis"}
 indicator_variables <- c("exp_wks_coverage10_yr_MM",
                          "exact_coverage10_yr_MM",
                          "imputed_coverage10_yr_MM"#, "imp_qual10_yr_MM"
@@ -83,7 +164,7 @@ lapply(indicator_variables, function(x) {
   kable_styling()
   
   print(t)
-  
+  cat("\n")
 })
 
 
@@ -159,10 +240,18 @@ sur %>%
 
 ## Boxplots
 
-# --> for PM2.5, why doesn't MM & SP go back as far as ST? 
-
 ```{r}
-print("Distribution of air pollution exposure predictions")
+sur %>%
+  group_by(model) %>%
+  summarize(
+    start_year = min(exposure_year),
+    end_year = max(exposure_year),
+  )
+
+
+
+print("Distribution of air pollution exposure predictions. tails are the 10th and 90th percentile")
+
 sur %>%
   filter(exposure_duration ==10) %>%
   group_by(pollutant, exposure_year, model) %>%
@@ -213,9 +302,24 @@ cor_df <- sur %>%
 
 ```
 
-table
+## table
 
-# --> why is e.g., MM No2 so strongly correlated w/ ST No2??
+```{r}
+
+cor(cor_df, method = "pearson") %>%
+  kable(caption = "10-year pollutant prediction correlations", digits = 2) %>%
+  kable_styling()
+
+```
+
+ 
+## all pollutant 2D histogram
+ 
+# --> MM PNC correlates better with SP PM2.5 than MM PM2.5. Is this b/c our PM2.5 measurements are unreliable?
+# --> similar for PNC vs MM NO2 and SP No2
+
+* MM NO2 is well correlated with ST NO2 b/c there is a positive relationship, even though the y-distribution is larger than with SP?
+* MM BC is better correlated with MM PmM.25 than SP PM2.5 (good)
 
 ```{r}
 
@@ -226,9 +330,8 @@ cor(cor_df) %>%
   pivot_longer(cols = -rowname) %>%
   
   ggplot(aes(x=rowname, y=name, fill=value)) + 
-  geom_bin_2d() + 
+  geom_bin2d() + # was geom_bin_2d() + 
   geom_text(aes(label=value)) + 
-  
   scale_fill_gradient2(
   low = "red",
   mid = "white",
@@ -238,11 +341,12 @@ cor(cor_df) %>%
                                    hjust=1)) + 
   labs(x="", y="", fill="R")
 
+ggsave(file.path(image_path, "SI", "correlations.png"), height = 8, width = 8)
   
 ```
 
 
-# --> START HERE. upadte for all pollutants?
+## PM2.5 & NO2 scatterplot
 
 ```{r}
 print("Comparison of 10 year exposure predictions from MM and ST models")
@@ -262,31 +366,45 @@ sur %>%
   geom_abline(slope = 1, intercept = 0, alpha=0.5, linetype=2) +
   theme(aspect.ratio=1) +
   #add pearson correlation
-  stat_cor(aes(label = ..r.label..)) + 
+  # --> doesn't work to only show r 
+  stat_cor(aes(#label = ..r.label..
+    )) + 
+
   labs(
     x = "Mobile Monitoring Prediction",
     y = "Spatio-Temporal Prediction"
   )
 
-ggsave(file.path(image_path, "SI", "mm_sp_st_comparison.png"), height = 8, width = 8)
-
-
-```
-
-
-test
-
-```{r}
-
-ggpairs(cor_df, title="correlogram with ggpairs()") 
-ggsave(file.path(image_path, "SI", "mm_sp_st_comparison2.png"), height = 8, width = 8)
+ggsave(file.path(image_path, "SI", "no2_pm25_comparisons.png"), height = 8, width = 8)
 
 
 ```
 
 
 
-```{r}
+
+## all pollutant scatterplot
+
+```{r, eval=T}
+
+cor_df %>%
+  rename_all(~gsub(") ", ")\n", .)) %>%  
+  rename_all(~gsub("Scan ", "Scan\n", .)) %>%  
+  ggpairs(., mapping = aes(alpha = 0.0001
+                           # doesn't do anything ??
+                           #, stars = FALSE, digits=2
+                           ),
+          #, lower = list(continuous = wrap("smooth_loess", alpha=0.2))
+        ) + scale_x_continuous(guide = guide_axis(check.overlap = TRUE))
+
+ggsave(file.path(image_path, "SI", "ap_comparisons.png"), height = 12, width = 12)
+
+```
+
+
+**nice correlation plots takes long time to run**
+
+```{r, eval=F}
 
 #function colors upper panel by correlation value
 # source: https://stackoverflow.com/questions/45873483/ggpairs-plot-with-heatmap-of-correlation-values 
@@ -312,14 +430,7 @@ color_cor <- function(data, mapping, method="p", use="pairwise", alpha=0.5, ...)
     theme(panel.background = element_rect(fill=alpha(fill, alpha)))
 }
  
-```
-
-
-plot 
-
-**takes long time to run**
-
-```{r, eval=F}
+##########################################################################################
 print("10-year average ollutant prediction correlations (R)")
 
 # correlation plot
@@ -334,41 +445,84 @@ ggsave(file.path(image_path, "SI", "pollutant_correlations.png"), height = 11, w
 
 
 
-
-
-
-
-
-
-
-
 # Table 1
  
-# --> could startify by high/low exposure for each pollutant, like Rachel 
-#--> add age range
-# --> change birth cohort?
-# --> round %s to whole #s?
+
+ 
+ 
+```{r}
+#calculate whether individuals were above/below 10-year avg MM pollutant concentration at baseline
+baseline_conc_avg <- sur %>%
+  filter(exposure_duration==10,
+         model== "MM",
+         pollutant %in% c("ufp_10_42", "bc", "no2", "pm25")
+         ) %>%
+  group_by(study_id) %>%
+  filter(exposure_year==first(exposure_year)) %>% 
+  group_by(pollutant, exposure_year) %>%
+  mutate(
+    mean_baseline_conc = mean(pollutant_prediction),
+    above_average = pollutant_prediction >= mean_baseline_conc
+  ) %>%
+  ungroup() %>% 
+  select(study_id, exposure_year, pollutant, pollutant_prediction, above_average) %>%
+  pivot_wider(names_from = pollutant, values_from = c(pollutant_prediction, above_average))
+
+sur_person_t1 <- left_join(sur_person, baseline_conc_avg) %>%
+  mutate(apoe_available = !is.na(apoe))
+
+```
+
+```{r}
+# total person-years
+sur_person_t1 %>%
+  group_by(apoe_available) %>%
+  summarize(
+    total_person_years = sum(sur_person_t1$follow_up_years),
+    group_person_years = sum(follow_up_years),
+    prop = round(group_person_years/total_person_years, 2)
+    ) %>%
+  kable(caption = "person-years", format.args = list(big.mark=",")) %>%
+  kable_styling()
+
+```
+
 
 ```{r}
 # Table1 tutorials: 
 ## https://cran.r-project.org/web/packages/table1/table1.pdf 
 ## https://cran.r-project.org/web/packages/table1/vignettes/table1-examples.html
-sur_person$apoe_available <- !is.na(sur_person$apoe)
+
+# # round statistics
+# my.render.cont <- function(x) {
+#     with(stats.apply.rounding(stats.default(x), digits=2), c("",
+#         "Mean (SD)"=sprintf("%s (%s)", MEAN, SD)))
+# }
+# my.render.cat <- function(x) {
+#     c("", sapply(stats.default(x), function(y) with(y,
+#         sprintf("%d (%0.0f%%)", FREQ, PCT))))
+# }
+
   
-t1_data <- list(
+t1_labels <- list(
   labels = list(
     male = "Sex",
     intakeage = "Age at Intake",
     follow_up_years = "Follow-Up Years",
-    corrected_anydementia = "All-Cause Dementia",
+    corrected_anydementia = "All-Cause Dementia Cases",
     ad_nincds = "Alzheimer's Disease Cases",
     birth_cohort = "Birth Cohort",
     race_white = "Race",
     degree = "Degree",
     income_cat = "2,000 Census Tract Income at Baseline",
     apoe = "APOE e4 Allele",
-    apoe_available = "APOE Status Available",
-    model_wt = "IPW for Modeling Cohort"
+    apoe_available = "Included in Main Analysis",
+    model_wt = "IPW for Modeling Cohort",
+    above_avg_ufp_10_42 = "Above Avg (PNC)",
+    pollutant_prediction_ufp_10_42 = "PNC (pt/cm3)",
+    pollutant_prediction_no2 = "NO2 (ppb)",
+    pollutant_prediction_bc = "BC (ng/m3)",
+    pollutant_prediction_pm25 = "PM2.5 (ug/m3)"
     ),
   units = list(
     intakeage = "Years"
@@ -376,11 +530,11 @@ t1_data <- list(
   categoricals = list(
     male = list('1' = "Male",
                 '0' = "Female"),
-    corrected_anydementia = list('1' = "Dementia",
-                                 '0' = "No Dementia"
+    corrected_anydementia = list('1' = "Yes",
+                                 '0' = "No"
                                  ),
-    ad_nincds = list('1' = "Alzheimer's Disease",
-                                 '0' = "No Alzheimer's Disease"
+    ad_nincds = list('1' = "Yes",
+                     '0' = "No"
                                  ),
     birth_cohort = list(sort(unique(sur_person$birth_cohort))),
     race_white = list('1' = "White",
@@ -401,21 +555,30 @@ t1_data <- list(
     apoe = list('1' = "Carriers",
                 '0' = "Non-Carriers"
                 ),
-    apoe_available = list('TRUE' = "APOE Available",
-                          'FALSE' = "APOE Not Available"
-                          )
-    )
-  ) %>%
-  t1read(sur_person, .) 
+    apoe_available = list('TRUE' = "Included in Main Analysis",
+                          'FALSE' = "Not Included in Main Analysis"
+                          ),
+    above_average_ufp_10_42 = list('FALSE' = "Below Avg (PNC)",
+                                   'TRUE' = "Above Avg (PNC)"
+                                   )
+    )#, groups=list("", "PNC Conc", "")
+  
+  ) 
 
+print("Baseline cohort characteristics stratified by whether 10-year average PNC concentration at baseline was below or above that year's average.")
 # Main Table 1
-t1_data %>%
-  table1(~intakeage + follow_up_years + male +corrected_anydementia + ad_nincds + race_white +degree + income_cat + apoe + model_wt + birth_cohort , data=.)
+t1read(filter(sur_person_t1, apoe_available==TRUE), t1_labels) %>%
+  table1(~intakeage + follow_up_years + male + race_white +degree + income_cat + apoe + model_wt + birth_cohort + corrected_anydementia + ad_nincds + pollutant_prediction_ufp_10_42 + pollutant_prediction_no2 + pollutant_prediction_bc + pollutant_prediction_pm25 |above_average_ufp_10_42 , data=., 
+         #groupspan=c(1,2,1)
+         # render.continuous = my.render.cont,
+         # render.categorical = my.render.cat
+         )
 
+cat("\n")
 
 # SI, by APOE STATUS/who is in the mode
-t1_data %>%
-  table1(~intakeage + follow_up_years + male +corrected_anydementia + ad_nincds + race_white +degree + income_cat + apoe + model_wt + birth_cohort | apoe_available, data=.)
+t1read(sur_person_t1, t1_labels) %>%
+  table1(~intakeage + follow_up_years + male + race_white +degree + income_cat + apoe + model_wt + birth_cohort + corrected_anydementia + ad_nincds + pollutant_prediction_ufp_10_42 + pollutant_prediction_no2 + pollutant_prediction_bc + pollutant_prediction_pm25 | apoe_available, data=., )
 
 
 
@@ -423,17 +586,22 @@ t1_data %>%
 
 
 
+## Event ties
 
-
-
-# Prediction Maps
-
-# --> compare ST to MM area 
+# --> TO DO
 
 ```{r}
-
-
+# dem.w %>%
+#   filter(dementia_now==1) %>%
+#   group_by(age_end_exposure) %>%
+#   mutate(N = n()) %>%
+#   # ties
+#   filter(N >1) %>%
+#   select(age_end_exposure) %>%
+#   unique() %>% 
+#   nrow()
+  
+   
+  
 ```
-
- 
 

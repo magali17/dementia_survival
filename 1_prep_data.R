@@ -20,8 +20,10 @@ pacman::p_load(tidyverse, lubridate, kableExtra)
 set.seed(1)
 
 source("0_functions.R")
-output_data_path <- file.path("Data", "Output", "1_prep_data")
+# output_data_path <- file.path("Data", "Output", "1_prep_data")
+# if(!file.exists(output_data_path)) {dir.create(output_data_path)}
 
+image_path <- file.path("..", "manuscript", "images")
 ######################################################################
 # LOAD DATA
 ######################################################################
@@ -34,6 +36,24 @@ if(file.exists(dt_path)) {
      sur0 <- haven::read_sas(gsub(".rda", ".sas7bdat", dt_path) , NULL)
      saveRDS(sur0, dt_path)
    }
+
+
+######################################################################
+# MM vs ST COVERAGE
+######################################################################
+
+# --> WHY DOES MM sometiems have more coverage than ST?
+
+ggplot(data=sur0, aes(x=exp_wks_coverage01_yr_MM, y = exp_wks_coverage01_yr_ST)) + geom_point(alpha=0.1) + geom_abline(slope = 1, intercept = 0, color="yellow") + geom_vline(xintercept = 0.95, color="red")
+ggsave(file.path(image_path, "Other", "mm_vs_st_01yr_coverage.png"), width=6, height=6)
+prop.table(table(sur0$exp_wks_coverage01_yr_MM > sur0$exp_wks_coverage01_yr_ST))
+
+ggplot(data=sur0, aes(x=exp_wks_coverage10_yr_MM, y = exp_wks_coverage10_yr_ST)) + geom_point(alpha=0.1) + geom_abline(slope = 1, intercept = 0, color="yellow") + geom_vline(xintercept = 0.95, color="red")
+ggsave(file.path(image_path, "Other", "mm_vs_st_10yr_coverage.png"), width=6, height=6)
+# prop of time where MM > ST. # 35%
+prop.table(table(sur0$exp_wks_coverage10_yr_MM > sur0$exp_wks_coverage10_yr_ST))
+
+
 
 ######################################################################
 # CLEAN VARIABLES
@@ -219,28 +239,49 @@ sur <- add_factor_refs(sur)
 ######################################################################
 coverage_threshold <- 0.95
 
-## --> why is coverage sometimes lower for ST than MM?
+# drop predictions & indicator variables if below the coverage_threshold
+# since ST predictions will only be used as sensitivity analyses to see if our findings are similar, we want to make sure the person-years used are the same as MM
+# thus, we will drop ST predictions if MM predictions are also dropped due to low covarege in the MM region
+sur <- sur %>%
+  # modify MM, ST, SP predictions based on MM coverage since these are sensitivity analyses
+  mutate_at(vars(starts_with("exp_avg10_yr_")), ~ifelse(exp_wks_coverage10_yr_MM < coverage_threshold, NA, .)) %>%
+  mutate_at(vars(starts_with("exp_avg05_yr_")), ~ifelse(exp_wks_coverage05_yr_MM < coverage_threshold, NA, .)) %>%
+  mutate_at(vars(starts_with("exp_avg01_yr_")), ~ifelse(exp_wks_coverage01_yr_MM < coverage_threshold, NA, .)) %>%
+  # make all coverage values NA if there are NA predictions, using MM since this is the same for ST and SP
+  mutate_at(vars(starts_with("exp_wks_coverage10_yr_")), ~ifelse(is.na(exp_avg10_yr_MM), NA, .)) %>%
+  mutate_at(vars(starts_with("exp_wks_coverage05_yr_")), ~ifelse(is.na(exp_avg05_yr_MM), NA, .)) %>%
+  mutate_at(vars(starts_with("exp_wks_coverage01_yr_")), ~ifelse(is.na(exp_avg01_yr_MM), NA, .)) %>%
+  
+  mutate_at(vars(starts_with("exact_coverage10_yr_")), ~ifelse(is.na(exp_avg10_yr_MM), NA, .)) %>%
+  mutate_at(vars(starts_with("exact_coverage05_yr_")), ~ifelse(is.na(exp_avg05_yr_MM), NA, .)) %>%
+  mutate_at(vars(starts_with("exact_coverage01_yr_")), ~ifelse(is.na(exp_avg01_yr_MM), NA, .)) %>%
+  
+  mutate_at(vars(starts_with("imputed_coverage10_yr_")), ~ifelse(is.na(exp_avg10_yr_MM), NA, .)) %>%
+  mutate_at(vars(starts_with("imputed_coverage05_yr_")), ~ifelse(is.na(exp_avg05_yr_MM), NA, .)) %>%
+  mutate_at(vars(starts_with("imputed_coverage01_yr_")), ~ifelse(is.na(exp_avg01_yr_MM), NA, .)) %>%
+  
+  mutate_at(vars(starts_with("imp_qual10_yr_")), ~ifelse(is.na(exp_avg10_yr_MM), NA, .)) %>%
+  mutate_at(vars(starts_with("imp_qual05_yr_")), ~ifelse(is.na(exp_avg05_yr_MM), NA, .)) %>%
+  mutate_at(vars(starts_with("imp_qual01_yr_")), ~ifelse(is.na(exp_avg01_yr_MM), NA, .)) 
+ 
 
-ggplot(data=sur, aes(x=exp_wks_coverage10_yr_MM, y = exp_wks_coverage10_yr_ST)) + geom_point(alpha=0.1) + geom_abline(slope = 1, intercept = 0, color="yellow") + geom_vline(xintercept = coverage_threshold, color="red")
-ggsave(file.path(output_data_path, "mm_vs_st_coverage.png"), width=6, height=6)
-# prop of time where MM > ST. # 35%
-prop.table(table(sur0$exp_wks_coverage10_yr_MM > sur0$exp_wks_coverage10_yr_ST))
-
-# drop prediction if lower than a threshold
-sur$exp_avg10_yr_MM[sur$exp_wks_coverage10_yr_MM < coverage_threshold] <- NA
-sur$exp_avg10_yr_ST[sur$exp_wks_coverage10_yr_ST < coverage_threshold] <- NA
-sur$exp_avg10_yr_SP[sur$exp_wks_coverage10_yr_SP < coverage_threshold] <- NA
-sur$exp_avg05_yr_MM[sur$exp_wks_coverage05_yr_MM < coverage_threshold] <- NA
-sur$exp_avg05_yr_ST[sur$exp_wks_coverage05_yr_ST < coverage_threshold] <- NA
-sur$exp_avg05_yr_SP[sur$exp_wks_coverage05_yr_SP < coverage_threshold] <- NA
-sur$exp_avg01_yr_MM[sur$exp_wks_coverage01_yr_MM < coverage_threshold] <- NA
-sur$exp_avg01_yr_ST[sur$exp_wks_coverage01_yr_ST < coverage_threshold] <- NA
-sur$exp_avg01_yr_SP[sur$exp_wks_coverage01_yr_SP < coverage_threshold] <- NA
-#recalculate indicator variables for 10 yr MM
-sur$exp_wks_coverage10_yr_MM[is.na(sur$exp_avg10_yr_MM)] <- NA
-sur$exact_coverage10_yr_MM[is.na(sur$exp_avg10_yr_MM)] <- NA
-sur$imputed_coverage10_yr_MM[is.na(sur$exp_avg10_yr_MM)] <- NA
-sur$imp_qual10_yr_MM[is.na(sur$exp_avg10_yr_MM)] <- NA
+#test %>% select(exp_avg10_yr_MM, exp_wks_coverage10_yr_MM) %>% View() 
+  
+# # drop prediction if lower than a threshold
+# sur$exp_avg10_yr_MM[sur$exp_wks_coverage10_yr_MM < coverage_threshold] <- NA
+# sur$exp_avg10_yr_ST[sur$exp_wks_coverage10_yr_ST < coverage_threshold] <- NA
+# sur$exp_avg10_yr_SP[sur$exp_wks_coverage10_yr_SP < coverage_threshold] <- NA
+# sur$exp_avg05_yr_MM[sur$exp_wks_coverage05_yr_MM < coverage_threshold] <- NA
+# sur$exp_avg05_yr_ST[sur$exp_wks_coverage05_yr_ST < coverage_threshold] <- NA
+# sur$exp_avg05_yr_SP[sur$exp_wks_coverage05_yr_SP < coverage_threshold] <- NA
+# sur$exp_avg01_yr_MM[sur$exp_wks_coverage01_yr_MM < coverage_threshold] <- NA
+# sur$exp_avg01_yr_ST[sur$exp_wks_coverage01_yr_ST < coverage_threshold] <- NA
+# sur$exp_avg01_yr_SP[sur$exp_wks_coverage01_yr_SP < coverage_threshold] <- NA
+# #recalculate indicator variables for 10 yr MM
+# sur$exp_wks_coverage10_yr_MM[is.na(sur$exp_avg10_yr_MM)] <- NA
+# sur$exact_coverage10_yr_MM[is.na(sur$exp_avg10_yr_MM)] <- NA
+# sur$imputed_coverage10_yr_MM[is.na(sur$exp_avg10_yr_MM)] <- NA
+# sur$imp_qual10_yr_MM[is.na(sur$exp_avg10_yr_MM)] <- NA
 
 ######################################################################
 # SUBSET DATA
@@ -290,7 +331,7 @@ left_join(initial_py, final_py) %>%
   ) %>%
   kable(caption = "Persons & person-years before and after dropping person-years with insufficient coverage", digits = 3) %>% 
   kable_styling() %>%
-  save_kable(file.path(output_data_path, "sample_person_yrs.pdf"))
+  save_kable(file.path(image_path, "Other", "sample_person_yrs.pdf"))
 
 ######################################################################
 # FINAL INDIVIDUAL LEVEL FOLLOW UP YEARS (WITH EXPOSURE)
