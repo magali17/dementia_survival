@@ -20,10 +20,13 @@ pacman::p_load(tidyverse, lubridate, kableExtra)
 set.seed(1)
 
 source("0_functions.R")
-# output_data_path <- file.path("Data", "Output", "1_prep_data")
-# if(!file.exists(output_data_path)) {dir.create(output_data_path)}
+output_data_path <- file.path("Data", "Output", "1_prep_data")
+if(!file.exists(output_data_path)) {dir.create(output_data_path)}
 
 image_path <- file.path("..", "manuscript", "images")
+
+print_diagnostics <- FALSE
+
 ######################################################################
 # LOAD DATA
 ######################################################################
@@ -44,16 +47,16 @@ if(file.exists(dt_path)) {
 
 # --> WHY DOES MM sometiems have more coverage than ST?
 
-ggplot(data=sur0, aes(x=exp_wks_coverage01_yr_MM, y = exp_wks_coverage01_yr_ST)) + geom_point(alpha=0.1) + geom_abline(slope = 1, intercept = 0, color="yellow") + geom_vline(xintercept = 0.95, color="red")
-ggsave(file.path(image_path, "Other", "mm_vs_st_01yr_coverage.png"), width=6, height=6)
-prop.table(table(sur0$exp_wks_coverage01_yr_MM > sur0$exp_wks_coverage01_yr_ST))
-
-ggplot(data=sur0, aes(x=exp_wks_coverage10_yr_MM, y = exp_wks_coverage10_yr_ST)) + geom_point(alpha=0.1) + geom_abline(slope = 1, intercept = 0, color="yellow") + geom_vline(xintercept = 0.95, color="red")
-ggsave(file.path(image_path, "Other", "mm_vs_st_10yr_coverage.png"), width=6, height=6)
-# prop of time where MM > ST. # 35%
-prop.table(table(sur0$exp_wks_coverage10_yr_MM > sur0$exp_wks_coverage10_yr_ST))
-
-
+if(print_diagnostics == TRUE) {
+  ggplot(data=sur0, aes(x=exp_wks_coverage01_yr_MM, y = exp_wks_coverage01_yr_ST)) + geom_point(alpha=0.1) + geom_abline(slope = 1, intercept = 0, color="yellow") + geom_vline(xintercept = 0.95, color="red")
+  ggsave(file.path(image_path, "Other", "mm_vs_st_01yr_coverage.png"), width=6, height=6)
+  prop.table(table(sur0$exp_wks_coverage01_yr_MM > sur0$exp_wks_coverage01_yr_ST))
+  
+  ggplot(data=sur0, aes(x=exp_wks_coverage10_yr_MM, y = exp_wks_coverage10_yr_ST)) + geom_point(alpha=0.1) + geom_abline(slope = 1, intercept = 0, color="yellow") + geom_vline(xintercept = 0.95, color="red")
+  ggsave(file.path(image_path, "Other", "mm_vs_st_10yr_coverage.png"), width=6, height=6)
+  # prop of time where MM > ST. # 35%
+  prop.table(table(sur0$exp_wks_coverage10_yr_MM > sur0$exp_wks_coverage10_yr_ST))
+}
 
 ######################################################################
 # CLEAN VARIABLES
@@ -184,47 +187,75 @@ apoe <- mutate(sur_person, apoe_available = !is.na(apoe)) %>%
   drop_na() %>%
   mutate_at(c("birth_cohort", "birth_cohort_2yr", "final_nindx", "cohort", "casi_valid", "marital", "livingsb", "iadl_flag", "iadl_sum", "IADL_Bills", "IADL_House", "IADL_Meals", "IADL_phone", "IADL_shopping", "cholmed", "Chair_Able", "Gait_able", "grip_able", "gripsmall", "halfmile", "heavyhouse", "lift10lbs", "stairs", "degree", "race", "htnmed"), as.factor)
 
+# people with missing
+if(print_diagnostics==TRUE) {
+  ggplot(apoe, aes(x=last_visit, fill=apoe_available)) + geom_histogram()  
+}
+
+# --> is the goal with IPW to have a representative sample in terms of things that could be confounders? or just in "general" - to say that our study cohort is "representative" of the "general" population? This may determine what predictors we choose to use in IPW
+
+# see what categories have few counts, stratified by apoe availability
+if(print_diagnostics == TRUE) {
+  library(table1)
+
+  # table comparing counts/distribution of covariates in people w/ and w/o apoe values
+  apoe %>%
+    select(Onset_Age_ACT:last_col()) %>%
+    mutate(apoe_available = as.factor(apoe_available)) %>%
+    table1(~. | apoe_available, data=., overall = F, extra.col = list('P-value' = pvalue))
+}
+
 # use all columns except study_id and apoe_available as predictors
-lasso_results <- lasso_fn(dt = apoe, x_names = names(apoe)[2:(ncol(apoe)-1)], y_name = "apoe_available", family. = "binomial", lambda. = 0.01) #lambda 0.005
+# fn uses model.matrix and then selects overall predictors
+lasso_results <- lasso_fn(dt = apoe, x_names = names(apoe)[2:(ncol(apoe)-1)], y_name = "apoe_available", family. = "binomial")#, lambda. = 0.01)
+                           
 
 apoe_missing_cov <- lasso_results$results$cov
 
-# model.matrix creates dummy variables like those selected from lasso
-apoe <- model.matrix(apoe_available~., data=apoe) %>% as.data.frame() %>%
-     cbind(apoe_available=apoe$apoe_available)
+# # model.matrix creates dummy variables like those selected from lasso
+# apoe <- model.matrix(apoe_available~., data=apoe) %>% as.data.frame() %>%
+#      cbind(apoe_available=apoe$apoe_available)
 
-#don't include subcategories w/ few counts (produces very unstable weights; e.g., probability of apoe being available is ~0)
-drop_vars <- apoe %>%
+# only include predictors where >= X individuals have that characteristic. Lower values indicate that this is rare in the cohort anyways, and leads to model instability while calculating weights
+# e.g., 1-2 people have characteristic X and one is dropped b/c of no APOE status.
+count_threshold <- 3
+
+apoe_matrix <- apoe %>%
+  model.matrix(apoe_available~., data=.) %>% as.data.frame() %>%
+  cbind(apoe_available=apoe$apoe_available) %>%
+  # don't need or already have (e.g., birth cohort, last_predx_visit is similar to last_visit)
+  select(-c("(Intercept)", "study_id", "birthdt", "intakedt", "last_predx_visit")) #"last_visit",
+
+keep_vars <- apoe_matrix %>%
   group_by(apoe_available) %>%
-  select(apoe_missing_cov) %>%
-  summarize_all(~sum(.)) %>%  
-  select(-apoe_available) %>%
-  apply(.,2, function(x) any(x<=1)) %>% 
-  as.data.frame() %>% rownames_to_column() %>% 
-  filter(.==TRUE) %>%
-  pull(rowname)
+  summarize_all(~sum(.)) %>%
+  summarize_all(~all(.>=count_threshold)) %>%
+  select_if(~.==TRUE) %>% 
+  names() %>%
+  c(., "apoe_available")
 
-apoe_missing_cov <- setdiff(apoe_missing_cov, drop_vars)
+# make sure variables have enough counts and were selected by Lasso
+apoe_missing_cov <- keep_vars[keep_vars %in% apoe_missing_cov]
+saveRDS(apoe_missing_cov, file.path(output_data_path, "lasso_predictors.rda"))
 
-apoe_model <- glm(as.formula(paste("apoe_available ~", paste(apoe_missing_cov, collapse = "+"))), family = "binomial", data=apoe)
+apoe_model <- glm(as.formula(paste("apoe_available ~", paste(apoe_missing_cov, collapse = "+"))), family = "binomial", data=apoe_matrix)
 # denominator: probability of APOE being present
 apoe_available_prob <- predict(apoe_model, type = "response") 
 # summary(1/apoe_available_prob) #check that probability isn't Tiny (like when used "race")
 
 #numerator: stabilizer 
-apoe_male_m <- glm(apoe_available ~ male1, family = "binomial", data = apoe) 
+apoe_male_m <- glm(apoe_available ~ male1, family = "binomial", data = apoe_matrix) 
 apoe_male_prob <- predict(apoe_male_m, type = "response") 
 # summary(apoe_male_prob/apoe_available_prob)
 
 apoe_wts <- select(apoe, study_id) %>%
   mutate(model_wt = apoe_male_prob/apoe_available_prob)
 # summary(apoe_wts$model_wt)
+# table(apoe_wts$model_wt>3) # 16 ppl
 
 # add to datasets 
-sur <- left_join(sur, apoe_wts) %>%
-  ungroup()
-sur_person <- left_join(sur_person, apoe_wts) %>%
-  ungroup() %>%
+sur <- left_join(sur, apoe_wts) %>% ungroup()
+sur_person <- left_join(sur_person, apoe_wts) %>% ungroup() %>%
   # drop model weights that won't actually be used in the models b/c apoe is missing
   mutate(model_wt = ifelse(is.na(apoe), NA, model_wt))
 
@@ -349,6 +380,8 @@ complete_fu_yrs <- sur2 %>%
 
 # left join to complete_fu_yrs to only keep people remaining
 sur_person <- left_join(complete_fu_yrs, sur_person)
+
+# summary(apoe_wts$model_wt)
 
 ######################################################################
 # SAVE DATA

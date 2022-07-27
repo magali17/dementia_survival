@@ -204,8 +204,6 @@ sur_person$last_visit %>% max()
 
 * could stratify by covariates
 
-# --> max weight is very high. reduce predictor covariates?
-
 ```{r}
 sur_person %>%
   drop_na(model_wt) %>%
@@ -278,6 +276,7 @@ ggsave(file.path(image_path, "SI", "exposure_over_time_boxplots.png"), height = 
    * MM is dropped more often than ST b/c of low exp_wks_coverage
 
 # --> why are MM and SP sometimes dropped but not ST? Don't SP and ST have the same spatial coverage?
+# --> ask Roy's replacement to rever back to not using imp_quality, exact_coverage, and imputed_coverage separtely for MM and ST?
 
 ```{r}
 cor_df <- sur %>%
@@ -580,28 +579,29 @@ cat("\n")
 t1read(sur_person_t1, t1_labels) %>%
   table1(~intakeage + follow_up_years + male + race_white +degree + income_cat + apoe + model_wt + birth_cohort + corrected_anydementia + ad_nincds + pollutant_prediction_ufp_10_42 + pollutant_prediction_no2 + pollutant_prediction_bc + pollutant_prediction_pm25 | apoe_available, data=., )
 
-
-
 ```
 
 
 
 ## Event ties
 
-# --> TO DO
+There were 85 dementia ties for the following models:  
+
+* the specific exposures used to calculate this doesn't matter b/c ties happen on the age-scale regardless of the exposure assigned
 
 ```{r}
-# dem.w %>%
-#   filter(dementia_now==1) %>%
-#   group_by(age_end_exposure) %>%
-#   mutate(N = n()) %>%
-#   # ties
-#   filter(N >1) %>%
-#   select(age_end_exposure) %>%
-#   unique() %>% 
-#   nrow()
-  
-   
+sur %>%
+  filter(!is.na(apoe),
+         model==first(model),
+         exposure_duration == first(exposure_duration),
+         pollutant==first(pollutant),
+         dementia_now==1
+         ) %>%  
+  group_by(age_end_exposure) %>%
+  summarize(N = n()) %>%
+  filter(N >1) %>%
+  distinct() %>% 
+  summarize(event_ties = n()) 
   
 ```
 
