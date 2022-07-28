@@ -39,7 +39,8 @@ vignettes/*.pdf
 # R Environment Variables
 .Renviron
 
-# Other
+# OTHER
 .DS_Store
-Data/
 *.html
+Data/
+Output/
