@@ -1,6 +1,91 @@
 ##########################################################################################
-# NOAH TABLE 1
+# OLD POLLUTANT SCRIPT CODE
 ##########################################################################################
+
+######################################################################
+# SINGLE POLLUTANT MODELS
+######################################################################
+#predictors other than strata(apoe)
+one_pollutant_predictors <- c("pollutant_prediction", "cal_2yr", "male", "race_white", "degree", "income_cat")
+
+one_pollutant_models <- data.frame()
+for(i in c("dementia_now", "ad_now")) {
+  message(i)
+  # x = group_split(sur, pollutant, exposure_duration, model)[[1]]
+  temp <- lapply(group_split(sur, pollutant, exposure_duration, model), run_cox, event_indicator = i, predictors=one_pollutant_predictors) %>% 
+    bind_rows()
+  one_pollutant_models <- rbind(one_pollutant_models, temp)
+}
+
+######################################################################
+# TWO (PM2.5+NO2) MODELS FOR MM, SP, and ST
+######################################################################
+model_types <- c("MM", "SP", "ST")
+pollutants <- c("no2", "pm25")
+two_pollutant_models <- data.frame()
+
+for(m in model_types) {
+  # m = "MM"
+  message(paste("model: ", m))
+  model_predictors <- c(paste(m, pollutants, sep = "_"), 
+                        "cal_2yr", "male", "race_white", "degree", "income_cat")
+  
+  for(i in c("dementia_now", "ad_now")) {
+    # i = "dementia_now"
+    message(paste("outcome: ", i))
+    # x = group_split(sur_w, exposure_duration)[[1]]
+    temp <- lapply(group_split(sur_w, exposure_duration), function(x) {
+      x$model <- m
+      x$pollutant <- paste(pollutants, collapse = "+")
+      temp <- run_cox(dt=x, event_indicator = i, predictors=model_predictors)}) %>% 
+      bind_rows()
+    
+    two_pollutant_models <- rbind(two_pollutant_models, temp)
+  }
+}
+
+
+######################################################################
+# THREE (PNC+BC+NO2) POLLUTANT MODELS FOR MM
+######################################################################
+m <- "MM"
+pollutants <- c("ufp_10_42", "bc", "no2")
+three_pollutant_mm_models <- data.frame()
+
+model_predictors <- c(paste(m, pollutants, sep = "_"), 
+                      "cal_2yr", "male", "race_white", "degree", "income_cat")
+
+for(i in c("dementia_now", "ad_now")) {
+  message(paste("outcome: ", i))
+  temp <- lapply(group_split(sur_w, exposure_duration), function(x) {
+    x$model <- m
+    x$pollutant <- paste(pollutants, collapse = "+")
+    temp <- run_cox(dt=x, event_indicator = i, predictors=model_predictors)}) %>% 
+    bind_rows()
+  
+  three_pollutant_mm_models <- rbind(three_pollutant_mm_models, temp)
+}
+
+
+######################################################################
+# FOUR (PNC+BC+NO2+PM2.5) POLLUTANT MODELS FOR MM
+######################################################################
+pollutants <- c("ufp_10_42", "bc", "no2", "pm25")
+four_pollutant_mm_models <- data.frame()
+
+model_predictors <- c(paste(m, pollutants, sep = "_"), 
+                      "cal_2yr", "male", "race_white", "degree", "income_cat")
+
+for(i in c("dementia_now", "ad_now")) {
+  message(paste("outcome: ", i))
+  temp <- lapply(group_split(sur_w, exposure_duration), function(x) {
+    x$model <- m
+    x$pollutant <- paste(pollutants, collapse = "+")
+    temp <- run_cox(dt=x, event_indicator = i, predictors=model_predictors)}) %>% 
+    bind_rows()
+  
+  four_pollutant_mm_models <- rbind(four_pollutant_mm_models, temp)
+}
 
 
 

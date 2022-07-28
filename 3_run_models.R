@@ -3,7 +3,7 @@
 ######################################################################
 # Author: Magali Blanco
 # Date: 7/22/2022
-# Purpose: Run dementia-TRAP survival model
+# Purpose: Run dementia-TRAP survival models
 ######################################################################
 
 ######################################################################
@@ -21,7 +21,7 @@ pacman::p_load(tidyverse, lubridate, kableExtra, survival) #survminer,
 
 set.seed(1)
 
-source("0_functions.R")
+source("functions.R")
 output_data_path <- file.path("Data", "Output")
 if(!file.exists(output_data_path)) {dir.create(output_data_path)}
 
@@ -34,11 +34,26 @@ sur <- readRDS(file.path("Data", "Output", "sur.rda"))
 ######################################################################
 # COMMON VARIABLES
 ######################################################################
-
 pnc_units <- 1000
 bc_units <- 10
 no2_units <- 5
 pm25_units <- 1
+
+main_ap_models <- c(
+  # single pollutant models
+  as.list(str_subset(names(sur_w), "^MM|^SP|^ST")),
+  # 2 pollutant models
+  # --> NEED?
+  list(paste("MM", c("no2", "pm25"), sep = "_")),
+  list(paste("SP", c("no2", "pm25"), sep = "_")),
+  list(paste("ST", c("no2", "pm25"), sep = "_")),
+  # 3 pollutant models
+  list(paste("MM", c("ufp_10_42", "bc", "no2"), sep = "_")),
+  # 4 pollutant models
+  list(paste("MM", c("ufp_10_42", "bc", "no2", "pm25"), sep = "_"))
+  )
+
+sensitivity_yr <- 2005
 
 ######################################################################
 # UPDATE DATA
@@ -57,9 +72,10 @@ sur <- sur %>%
 
 sur <- drop_na(sur, apoe, predictors)
   
+# --> WHY DO SOME COVERAGE VARIABLES HAVE NAS BUT STILL HAVE PREDICTIONS?? DROP UNNECESSARY COLUMNS?
+
 # for multipollutant modeling
 sur_w <- sur %>%
-  #filter(pollutant %in% c("pm25", "no2")) %>%
   select(-exp_avg0) %>%
   pivot_wider(names_from = c(model, pollutant), values_from = pollutant_prediction) 
 
@@ -67,8 +83,9 @@ sur_w <- sur %>%
 # FUNCTIONS
 ######################################################################
 
-# dt = group_split(sur, pollutant, exposure_duration, model)[[2]]
+# --> also pull out person-years & ties?
 
+# fn runs coxph() models and returns HR results
 run_cox <- function(dt, event_indicator, predictors) {
   model_description <- paste(first(dt$pollutant), first(dt$exposure_duration), first(dt$model))
   message(model_description)
@@ -101,94 +118,65 @@ run_cox <- function(dt, event_indicator, predictors) {
   return(result)
   }
 
-######################################################################
-# SINGLE POLLUTANT MODELS
-######################################################################
-#predictors other than strata(apoe)
-one_pollutant_predictors <- c("pollutant_prediction", "cal_2yr", "male", "race_white", "degree", "income_cat")
-
-one_pollutant_models <- data.frame()
-for(i in c("dementia_now", "ad_now")) {
-  message(i)
-  # x = group_split(sur, pollutant, exposure_duration, model)[[1]]
-  temp <- lapply(group_split(sur, pollutant, exposure_duration, model), run_cox, event_indicator = i, predictors=one_pollutant_predictors) %>% 
-    bind_rows()
-  one_pollutant_models <- rbind(one_pollutant_models, temp)
-}
-
-######################################################################
-# PM2.5+NO2 MODELS FOR MM, SP, and ST
-######################################################################
-model_types <- c("MM", "SP", "ST")
-pollutants <- c("no2", "pm25")
-two_pollutant_models <- data.frame()
-
-for(m in model_types) {
-  # m = "MM"
-  message(paste("model: ", m))
-  model_predictors <- c(paste(m, pollutants, sep = "_"), 
-                        "cal_2yr", "male", "race_white", "degree", "income_cat")
+run_cox_many_times <- function(dt, pollutant_predictors) {
+  
+  hr_results <- data.frame()
   
   for(i in c("dementia_now", "ad_now")) {
     # i = "dementia_now"
     message(paste("outcome: ", i))
-    # x = group_split(sur_w, exposure_duration)[[1]]
-    temp <- lapply(group_split(sur_w, exposure_duration), function(x) {
-      x$model <- m
-      x$pollutant <- paste(pollutants, collapse = "+")
-      temp <- run_cox(dt=x, event_indicator = i, predictors=model_predictors)}) %>% 
-      bind_rows()
+    
+    for(m in pollutant_predictors) {
+      # m = pollutant_predictors[16]
+      m <- unlist(m)
+      message(paste("model: ", paste(m, collapse = "+")))
+      model_predictors <- c(m, "cal_2yr", "male", "race_white", "degree", "income_cat")
+      # x = group_split(sur_w, exposure_duration)[[1]]
+      temp <- lapply(group_split(dt, exposure_duration), function(x) {
+        x$model <- substr(first(m), 1,2)
+        x$pollutant <- paste(substr(m, 4, str_length(m)), collapse = "+")
+        temp <- run_cox(dt=x, event_indicator = i, predictors=model_predictors)}) %>% 
+        bind_rows()
       
-      two_pollutant_models <- rbind(two_pollutant_models, temp)
+      hr_results <- rbind(hr_results, temp)
     }
   }
+  return(hr_results)
+}
+
+######################################################################
+# MODELS
+######################################################################
+# first set of models
+hrs_main <- run_cox_many_times(dt = sur_w, pollutant_predictors = main_ap_models) %>%
+  mutate(description = "Main Models")
+
+# 2005+ (person-years start in 2006 since exposure is always 1 yr earlier)
+hrs_more_recent <- sur_w %>%
+  filter(exposure_year >= sensitivity_yr) %>% 
+  mutate(cal_2yr = droplevels(cal_2yr)) %>% 
+  run_cox_many_times(., pollutant_predictors = main_ap_models) %>%
+  mutate(description = paste0(sensitivity_yr, "+"))
  
+# no IPW
+hrs_no_ipw <- sur_w %>%
+  mutate(model_wt = 1) %>%
+  run_cox_many_times(., pollutant_predictors = main_ap_models) %>%
+  mutate(description = "No IPW")
 
-######################################################################
-# PNC+BC+NO2 FOR MM
-######################################################################
-m <- "MM"
-pollutants <- c("ufp_10_42", "bc", "no2")
-three_pollutant_mm_models <- data.frame()
-
-model_predictors <- c(paste(m, pollutants, sep = "_"), 
-                      "cal_2yr", "male", "race_white", "degree", "income_cat")
-
-for(i in c("dementia_now", "ad_now")) {
-  message(paste("outcome: ", i))
-  temp <- lapply(group_split(sur_w, exposure_duration), function(x) {
-    x$model <- m
-    x$pollutant <- paste(pollutants, collapse = "+")
-    temp <- run_cox(dt=x, event_indicator = i, predictors=model_predictors)}) %>% 
-    bind_rows()
-  
-  three_pollutant_mm_models <- rbind(three_pollutant_mm_models, temp)
-}
 
 
 ######################################################################
-# PNC+BC+NO2+PM2.5 FOR MM
+# ADDITIONAL EXPLORATORY ANALYSES
 ######################################################################
-pollutants <- c("ufp_10_42", "bc", "no2", "pm25")
-four_pollutant_mm_models <- data.frame()
 
-model_predictors <- c(paste(m, pollutants, sep = "_"), 
-                      "cal_2yr", "male", "race_white", "degree", "income_cat")
 
-for(i in c("dementia_now", "ad_now")) {
-  message(paste("outcome: ", i))
-  temp <- lapply(group_split(sur_w, exposure_duration), function(x) {
-    x$model <- m
-    x$pollutant <- paste(pollutants, collapse = "+")
-    temp <- run_cox(dt=x, event_indicator = i, predictors=model_predictors)}) %>% 
-    bind_rows()
-  
-  four_pollutant_mm_models <- rbind(four_pollutant_mm_models, temp)
-}
+
+
 
 
 ######################################################################
-# SAVE MODELS
+# SAVE HAZARD RATIOS
 ######################################################################
-hazard_ratios <- rbind(one_pollutant_models, two_pollutant_models, three_pollutant_mm_models, four_pollutant_mm_models)
-saveRDS(hazard_ratios, file.path(output_data_path, "hazard_ratios.rda"))
+hrs <- rbind(hrs_main, hrs_more_recent, hrs_no_ipw)
+saveRDS(hrs, file.path(output_data_path, "hazard_ratios.rda"))

@@ -19,7 +19,7 @@ pacman::p_load(tidyverse, lubridate, kableExtra)
 
 set.seed(1)
 
-source("0_functions.R")
+source("functions.R")
 output_data_path <- file.path("Data", "Output", "1_prep_data")
 if(!file.exists(output_data_path)) {dir.create(output_data_path)}
 
