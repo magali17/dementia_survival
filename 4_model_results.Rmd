@@ -42,12 +42,86 @@ image_path <- file.path("..", "manuscript", "images")
  
 # Load files 
 source("functions.R")
-hrs <- readRDS(file.path("Data", "Output", "hazard_ratios.rda"))
- 
+hrs0 <- readRDS(file.path("Data", "Output", "hazard_ratios.rda"))
+hrs <- filter(hrs0, grepl("MM_|SP_|ST_", covariate)) %>%
+  mutate( 
+    covariate = paste(substr(covariate, 4, str_length(covariate)), substr(covariate, 1, 2), sep = "_"),
+    covariate = substr(covariate, 1, str_length(covariate)-3)
+    ) %>% 
+  rename(pollutant = covariate) %>% 
+  label_pollutants() %>%
+  mutate(pollutant = paste(pollutant, exposure_model),
+         outcome = ifelse(grepl("dementia", outcome), "All-Cause Dementia", "Alzheimer's Disease"),
+         pollutant_predictors = str_to_upper(pollutant_predictors),
+         pollutant_predictors = gsub("UFP_10_42|UFP_10_70|UFP_20_1K|UFP_36_1K", "PNC", pollutant_predictors),
+         pollutant_predictors = gsub("PM25", "PM2.5", pollutant_predictors),
+         
+         hr_sig = ifelse((lower95 <1 & upper95<1) | (lower95 >1 & upper95>1), "Significant", "Non-Significant" )
+         )
+
+         
 ```
 
-```{r}
+# --> set levels: pollutant, outcome, 
 
+#--> ggplot fn 
+#--> add HRs to plots 
+# --> why BC, PNC CIs so narrow?  
+#--> ? make y axis exposure_model & color by pollutant? or just exposure_model & jitter line/point?
+
+* most of the significant HRs come from the SP exposure model
+* 10 yr PNC from the 2005+ exposure year models are the only significant PNC HRs   
+
+```{r}
+# dt = hrs
+# description. = "Main Models"
+# exposure_duration. = "10"
+
+# fn returns HR plots
+plot_hrs <- function(dt, description., exposure_duration.) {
+  
+  p <- dt %>%
+    filter(description == description.,#"2005+" #"Main Models"
+           exposure_duration == exposure_duration.
+           ) %>%  
+    
+    ggplot(., aes(y=pollutant, x=hr, col=exposure_model, 
+                  shape=hr_sig
+                  #linetype=outcome, shape=outcome 
+                  )) + 
+    facet_grid(rows = vars(pollutant_predictors), cols = vars(outcome), space="free", scales="free_y", 
+               switch = "both") + 
+    geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
+    geom_point(size=2) +
+    geom_linerange(aes(xmin = lower95, xmax = upper95), alpha=0.5, size=1) + 
+    labs(title = paste0(description., "\n", exposure_duration., " Yr Exposure" ), 
+         x= "HR", y="Pollutant", col = "Exposure Model", shape="")
+  
+  return(p)
+}
+
+# plot_hrs(hrs, description. = "Main Models", exposure_duration. = "10")
+
+```
+
+
+```{r}
+pdf(file.path(image_path, "Other", paste0("HR_plots.pdf")), width = 8, height = 10)
+
+for(t in rev(unique(hrs$exposure_duration))) {
+  lapply(unique(hrs$description), function(x) {
+    p <- plot_hrs(hrs, description. = x, exposure_duration. = t)
+    print(p)
+    #ggsave(file.path(image_path, "Other", paste0("HR ",  x, t, " yr", ".png")), width = 8, height = 10)
+  })
+  }
+
+dev.off()
+
+
+
+
+  
 
 
 ```

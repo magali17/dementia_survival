@@ -39,20 +39,6 @@ bc_units <- 10
 no2_units <- 5
 pm25_units <- 1
 
-main_ap_models <- c(
-  # single pollutant models
-  as.list(str_subset(names(sur_w), "^MM|^SP|^ST")),
-  # 2 pollutant models
-  # --> NEED?
-  list(paste("MM", c("no2", "pm25"), sep = "_")),
-  list(paste("SP", c("no2", "pm25"), sep = "_")),
-  list(paste("ST", c("no2", "pm25"), sep = "_")),
-  # 3 pollutant models
-  list(paste("MM", c("ufp_10_42", "bc", "no2"), sep = "_")),
-  # 4 pollutant models
-  list(paste("MM", c("ufp_10_42", "bc", "no2", "pm25"), sep = "_"))
-  )
-
 sensitivity_yr <- 2005
 
 ######################################################################
@@ -70,7 +56,7 @@ sur <- sur %>%
     )) %>%
   ungroup()
 
-sur <- drop_na(sur, apoe, predictors)
+sur <- drop_na(sur, apoe) 
   
 # --> WHY DO SOME COVERAGE VARIABLES HAVE NAS BUT STILL HAVE PREDICTIONS?? DROP UNNECESSARY COLUMNS?
 
@@ -79,6 +65,21 @@ sur_w <- sur %>%
   select(-exp_avg0) %>%
   pivot_wider(names_from = c(model, pollutant), values_from = pollutant_prediction) 
 
+main_ap_models <- c(
+  # single pollutant models
+  as.list(str_subset(names(sur_w), "^MM|^SP|^ST")),
+  # 2 pollutant models
+  # --> NEED?
+  list(paste("MM", c("no2", "pm25"), sep = "_")),
+  list(paste("SP", c("no2", "pm25"), sep = "_")),
+  list(paste("ST", c("no2", "pm25"), sep = "_")),
+  # 3 pollutant models
+  list(paste("MM", c("ufp_10_42", "bc", "no2"), sep = "_")),
+  # 4 pollutant models
+  list(paste("MM", c("ufp_10_42", "bc", "no2", "pm25"), sep = "_"))
+)
+# TEST
+# main_ap_models <- c("MM_bc", "MM_no2")
 ######################################################################
 # FUNCTIONS
 ######################################################################
@@ -86,8 +87,13 @@ sur_w <- sur %>%
 # --> also pull out person-years & ties?
 
 # fn runs coxph() models and returns HR results
-run_cox <- function(dt, event_indicator, predictors) {
-  model_description <- paste(first(dt$pollutant), first(dt$exposure_duration), first(dt$model))
+# dt = group_split(sur_w, exposure_duration)[[1]]
+# event_indicator = "dementia_now"
+# pollutant_predictors = c("MM_no2", "MM_bc")
+# other_predictors = c("cal_2yr", "male", "race_white", "degree", "income_cat")
+run_cox <- function(dt, event_indicator, pollutant_predictors, other_predictors = c("cal_2yr", "male", "race_white", "degree", "income_cat")) {
+  model_description <- paste(first(dt$exposure_duration), "yr", paste(pollutant_predictors, collapse="+"))
+  exposure_model <- paste(unique(str_extract(pollutant_predictors, "MM|SP|ST")), collapse = " + ")
   message(model_description)
   
   #create a survival object
@@ -95,6 +101,7 @@ run_cox <- function(dt, event_indicator, predictors) {
                       time2 = dt$age_end_exposure,
                       event = dt[[event_indicator]])
   
+  predictors <- c(pollutant_predictors, other_predictors)
   cox_model <- coxph(as.formula(paste("surv_object ~" ,paste(predictors, collapse = "+"), "+ strata(apoe)")), 
                      data=dt,
                      cluster = study_id, #robust = T,
@@ -105,9 +112,9 @@ run_cox <- function(dt, event_indicator, predictors) {
   result <- cox_model$conf.int %>% 
     as.data.frame() %>%
     rownames_to_column(var = "covariate") %>%
-    mutate(pollutant = first(dt$pollutant),
+    mutate(pollutant_predictors = paste(substr(pollutant_predictors, 4, str_length(pollutant_predictors)), collapse = " + "), #first(dt$pollutant),
            exposure_duration = first(dt$exposure_duration),
-           model = first(dt$model),
+           exposure_model = exposure_model,
            outcome = event_indicator) %>%
     rename_all(~make.names(.)) %>%
     select(-exp..coef.) %>%
@@ -118,31 +125,21 @@ run_cox <- function(dt, event_indicator, predictors) {
   return(result)
   }
 
-run_cox_many_times <- function(dt, pollutant_predictors) {
-  
+run_cox_many_times <- function(dt, pollutant_predictors, ...) {
   hr_results <- data.frame()
   
   for(i in c("dementia_now", "ad_now")) {
-    # i = "dementia_now"
-    message(paste("outcome: ", i))
+    message(paste("outcome:", i))
     
     for(m in pollutant_predictors) {
-      # m = pollutant_predictors[16]
-      m <- unlist(m)
-      message(paste("model: ", paste(m, collapse = "+")))
-      model_predictors <- c(m, "cal_2yr", "male", "race_white", "degree", "income_cat")
-      # x = group_split(sur_w, exposure_duration)[[1]]
-      temp <- lapply(group_split(dt, exposure_duration), function(x) {
-        x$model <- substr(first(m), 1,2)
-        x$pollutant <- paste(substr(m, 4, str_length(m)), collapse = "+")
-        temp <- run_cox(dt=x, event_indicator = i, predictors=model_predictors)}) %>% 
+      #m <- unlist(m)
+      temp <- lapply(group_split(dt, exposure_duration), run_cox, event_indicator = i, pollutant_predictors=m, ...) %>% 
         bind_rows()
       
       hr_results <- rbind(hr_results, temp)
-    }
-  }
+    }}
   return(hr_results)
-}
+  }
 
 ######################################################################
 # MODELS

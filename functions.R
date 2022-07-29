@@ -155,6 +155,32 @@ label_pollutants <- function(dt) {
 }
 
 
+
+# --> test, use GSUB instead
+label_pollutants2 <- function(dt) {
+  dt <- dt %>%
+    mutate(pollutant = case_when(
+      pollutant == "ufp_10_42" ~ "PNC (pt/cm3), NanoScan",
+      pollutant == "ufp_20_1k" ~ "PNC (pt/cm3), P-TRAK",
+      pollutant == "ufp_36_1k" ~ "PNC (pt/cm3), Screened P-TRAK",
+      pollutant == "ufp_10_70" ~ "PNC (pt/cm3), DiSCmini",
+      pollutant == "bc" ~ "BC (ng/m3)",
+      pollutant == "no2" ~ "NO2 (ppb)",
+      pollutant == "pm25" ~ "PM2.5 (ug/m3)",
+      pollutant == "co2" ~ "CO2 (ppm)"
+    ),
+    pollutant = factor(pollutant, levels = c("PNC (pt/cm3), NanoScan",
+                                             "PNC (pt/cm3), P-TRAK",
+                                             "PNC (pt/cm3), Screened P-TRAK",
+                                             "PNC (pt/cm3), DiSCmini",
+                                             "BC (ng/m3)",
+                                             "NO2 (ppb)",
+                                             "PM2.5 (ug/m3)",
+                                             "CO2 (ppm)"))
+    )
+  return(dt)
+}
+
 #######################################################################################################################
 # facet_wrap_equal() and facet_grid_equal() functions act like facet_wrap() and facet_grid() in ggplot but it sets the axes ranges (min/max) of each facet to same scale so that the 1-1 line is always down the middle :D !!
 #######################################################################################################################

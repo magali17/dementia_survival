@@ -43,5 +43,5 @@ vignettes/*.pdf
 .DS_Store
 *.html
 Data/
-Data/**
+Data/Output
 #Output/
