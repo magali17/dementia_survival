@@ -19,6 +19,10 @@ if (!is.null(sessionInfo()$otherPkgs)) {
 if (!require("pacman")) install.packages("pacman")
 pacman::p_load(tidyverse, lubridate, kableExtra, survival) #survminer,
 
+# citation("survival")
+#knitr::write_bib(c(.packages(), "survival"), file.path("~", "Desktop", "packages.ris"))
+
+
 set.seed(1)
 
 source("functions.R")
@@ -35,11 +39,14 @@ sur <- readRDS(file.path("Data", "Output", "sur.rda"))
 # COMMON VARIABLES
 ######################################################################
 pnc_units <- 1000
-bc_units <- 10
+bc_units <- 100
 no2_units <- 5
 pm25_units <- 1
 
-sensitivity_yr <- 2005
+save(pnc_units, bc_units, no2_units, pm25_units, file = file.path(output_data_path, "trap_model_units.rda"))
+
+main_exposure_duration <- 10
+first_exposure_year <- load(file.path(output_data_path, "first_exposure_year.rda")) #2005
 
 ######################################################################
 # UPDATE DATA
@@ -69,14 +76,17 @@ main_ap_models <- c(
   # single pollutant models
   as.list(str_subset(names(sur_w), "^MM|^SP|^ST")),
   # 2 pollutant models
-  # --> NEED?
-  list(paste("MM", c("no2", "pm25"), sep = "_")),
-  list(paste("SP", c("no2", "pm25"), sep = "_")),
-  list(paste("ST", c("no2", "pm25"), sep = "_")),
+  list(c("MM_ufp_10_42", "SP_pm25")),
+  list(c("MM_ufp_10_70", "SP_pm25")),
+  list(c("MM_ufp_20_1k", "SP_pm25")),
+  list(c("MM_ufp_36_1k", "SP_pm25")),
+  list(c("MM_bc", "SP_pm25")),
+  list(c("MM_no2", "SP_pm25")),
+  
   # 3 pollutant models
-  list(paste("MM", c("ufp_10_42", "bc", "no2"), sep = "_")),
+  #list(paste("MM", c("ufp_10_42", "bc", "no2"), sep = "_")),
   # 4 pollutant models
-  list(paste("MM", c("ufp_10_42", "bc", "no2", "pm25"), sep = "_"))
+  list(c(paste("MM", c("ufp_10_42", "bc", "no2"), sep = "_"), "SP_pm25"))
 )
 # TEST
 # main_ap_models <- c("MM_bc", "MM_no2")
@@ -91,14 +101,19 @@ main_ap_models <- c(
 # event_indicator = "dementia_now"
 # pollutant_predictors = c("MM_no2", "MM_bc")
 # other_predictors = c("cal_2yr", "male", "race_white", "degree", "income_cat")
-run_cox <- function(dt, event_indicator, pollutant_predictors, other_predictors = c("cal_2yr", "male", "race_white", "degree", "income_cat")) {
+run_cox <- function(dt, 
+                    start_time = "age_start_exposure", end_time = "age_end_exposure", event_indicator, 
+                    pollutant_predictors, 
+                    other_predictors = c("cal_2yr", "male", "race_white", "degree", "income_cat")) {
+  
   model_description <- paste(first(dt$exposure_duration), "yr", paste(pollutant_predictors, collapse="+"))
-  exposure_model <- paste(unique(str_extract(pollutant_predictors, "MM|SP|ST")), collapse = " + ")
   message(model_description)
+  exposure_model <- paste(unique(str_extract(pollutant_predictors, "MM|SP|ST")), collapse = " + ")
+  
   
   #create a survival object
-  surv_object <- Surv(time = dt$age_start_exposure,
-                      time2 = dt$age_end_exposure,
+  surv_object <- Surv(time = dt[[start_time]],
+                      time2 = dt[[end_time]],
                       event = dt[[event_indicator]])
   
   predictors <- c(pollutant_predictors, other_predictors)
@@ -125,7 +140,7 @@ run_cox <- function(dt, event_indicator, pollutant_predictors, other_predictors 
   return(result)
   }
 
-run_cox_many_times <- function(dt, pollutant_predictors, ...) {
+run_cox_many_times <- function(dt, pollutant_predictors = main_ap_models, ...) {
   hr_results <- data.frame()
   
   for(i in c("dementia_now", "ad_now")) {
@@ -144,30 +159,72 @@ run_cox_many_times <- function(dt, pollutant_predictors, ...) {
 ######################################################################
 # MODELS
 ######################################################################
-# first set of models
-hrs_main <- run_cox_many_times(dt = sur_w, pollutant_predictors = main_ap_models) %>%
-  mutate(description = "Main Models")
-
-# 2005+ (person-years start in 2006 since exposure is always 1 yr earlier)
-hrs_more_recent <- sur_w %>%
-  filter(exposure_year >= sensitivity_yr) %>% 
+hrs_main <- sur_w %>%
+  filter(exposure_year >= first_exposure_year) %>% 
   mutate(cal_2yr = droplevels(cal_2yr)) %>% 
-  run_cox_many_times(., pollutant_predictors = main_ap_models) %>%
-  mutate(description = paste0(sensitivity_yr, "+"))
+  run_cox_many_times(.) %>%
+  mutate(description = paste0("Main Models (", first_exposure_year, "+)"))
+
+# all years
+hrs_full_cohort <- sur_w %>%
+  filter(exposure_duration == main_exposure_duration) %>%
+  run_cox_many_times(.) %>%
+  mutate(description = "Full Cohort (1994+)")
+
+# fewer years
+hrs_2010 <- sur_w %>%
+  filter(exposure_year >= first_exposure_year+5,
+         exposure_duration == main_exposure_duration
+         ) %>% 
+  mutate(cal_2yr = droplevels(cal_2yr)) %>% 
+  run_cox_many_times(.) %>%
+  mutate(description = paste0(first_exposure_year+5, "+"))
  
 # no IPW
 hrs_no_ipw <- sur_w %>%
+  filter(exposure_year >= first_exposure_year,
+         exposure_duration == main_exposure_duration
+         ) %>% 
+  mutate(cal_2yr = droplevels(cal_2yr)) %>% 
   mutate(model_wt = 1) %>%
-  run_cox_many_times(., pollutant_predictors = main_ap_models) %>%
+  run_cox_many_times(.) %>%
   mutate(description = "No IPW")
 
+# adjust for intake year
+hrs_intake_age <- sur_w %>%
+  filter(exposure_year >= first_exposure_year,
+         exposure_duration == main_exposure_duration
+         ) %>% 
+  mutate(cal_2yr = droplevels(cal_2yr),
+         intakeage = cut(intakeage, seq(min(intakeage), max(intakeage), 5), right = F)
+         ) %>%  
+  run_cox_many_times(., other_predictors = c("intakeage", "cal_2yr", "male", "race_white", "degree", "income_cat")) %>%
+  mutate(description = "Intake Age adjustment")
 
+# calendar time-axis, adjust 2-year age group
+# --> did this correctly? see Rachel's work
+hrs_calendar_axis <- sur_w %>%
+  filter(exposure_year >= first_exposure_year,
+         exposure_duration == main_exposure_duration
+         ) %>%  
+  mutate(cal_2yr = droplevels(cal_2yr),
+         exposure_year0 = exposure_year-355/356, #start is 1 day into the previous year. may be fine to just use 1 for simplicity
+         age_start_exposure = cut(age_start_exposure, seq(min(age_start_exposure), max(age_start_exposure), 2), right = F)
+         ) %>% 
+  run_cox_many_times(., start_time = "exposure_year0", end_time = "exposure_year", 
+                     other_predictors = c("age_start_exposure", "cal_2yr", "male", "race_white", "degree", "income_cat")
+                     ) %>%
+  mutate(description = "Time Axis, 2yr age adj")
+
+
+#--> also stratify by sex. or make this the main model?
+# --> also adjust for marital/living status or social engagement
 
 ######################################################################
-# ADDITIONAL EXPLORATORY ANALYSES
+# INTERACTION MODELS
 ######################################################################
 
-
+## --> 
 
 
 
@@ -175,5 +232,5 @@ hrs_no_ipw <- sur_w %>%
 ######################################################################
 # SAVE HAZARD RATIOS
 ######################################################################
-hrs <- rbind(hrs_main, hrs_more_recent, hrs_no_ipw)
+hrs <- rbind(hrs_main, hrs_full_cohort, hrs_2010, hrs_no_ipw, hrs_intake_age, hrs_calendar_axis)
 saveRDS(hrs, file.path(output_data_path, "hazard_ratios.rda"))

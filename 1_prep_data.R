@@ -24,9 +24,41 @@ output_data_path <- file.path("Data", "Output", "1_prep_data")
 if(!file.exists(output_data_path)) {dir.create(output_data_path)}
 
 image_path <- file.path("..", "manuscript", "images")
+first_exposure_year <- 2005
+save(first_exposure_year, file = file.path(output_data_path, "first_exposure_year.rda"))
 
 print_diagnostics <- FALSE
 
+# exclusion counts
+exclusion_table <- tibble(description = as.character(),  
+                        persons = as.numeric(),
+                        persons_dropped = as.numeric(),
+                        persons_pct_dropped = as.numeric(),
+                        person_years = as.numeric(),
+                        person_years_dropped = as.numeric(),
+                        person_years_pct_dropped = as.numeric()
+                        )
+
+# fn adds the number of unique persons and person-years for any given dataset to the exclusion tibble
+# dt=sur0
+# description. = "test"
+count_remaining_sample <- function(dt, description.) {
+  temp <- distinct(dt, study_id, exposure_year)
+  
+  exclusion_table <- add_row(exclusion_table,
+                       description = description.,
+                       persons = length(unique(temp$study_id)),
+                       person_years = nrow(temp))
+  
+  exclusion_table <- mutate(exclusion_table,
+                            persons_dropped = lag(persons) - persons,
+                            persons_pct_dropped = round(persons_dropped/lag(persons), 2)*100,
+                            person_years_dropped = lag(person_years) - person_years,
+                            person_years_pct_dropped = round(person_years_dropped/lag(person_years), 2)*100
+                            )
+  
+  return(exclusion_table)
+}
 ######################################################################
 # LOAD DATA
 ######################################################################
@@ -40,12 +72,13 @@ if(file.exists(dt_path)) {
      saveRDS(sur0, dt_path)
    }
 
+exclusion_table <- count_remaining_sample(sur0, description. = "Full cohort/raw data")
 
 ######################################################################
 # MM vs ST COVERAGE
 ######################################################################
 
-# --> WHY DOES MM sometiems have more coverage than ST?
+# --> WHY DOES MM sometimes have more coverage than ST?
 
 if(print_diagnostics == TRUE) {
   ggplot(data=sur0, aes(x=exp_wks_coverage01_yr_MM, y = exp_wks_coverage01_yr_ST)) + geom_point(alpha=0.1) + geom_abline(slope = 1, intercept = 0, color="yellow") + geom_vline(xintercept = 0.95, color="red")
@@ -64,20 +97,20 @@ if(print_diagnostics == TRUE) {
 sur <- sur0 %>%
   #don't use non-final variables
   select(-c(nindx)) %>%
-  filter(#pollutant %in% c("ufp_20_1k","bc", "no2", "pm25"),
-          grepl("ufp|bc|no2|pm25", pollutant),
-          
+  filter(grepl("ufp|bc|no2|pm25", pollutant),
          #drop ppl w/ only baseline visits
          last_visit > intakedt #801 ppl dropped# last intakedt is thus 2017-08-01 (vs 2018-09-27)
          ) %>%
   mutate(
     #2 yr cal categories except for years 2016-2018
-    # --> update if get years > 2018
-    #cal_2yr = factor(ifelse(exposure_year==2018, 2016, floor(exposure_year/2)*2)),
     cal_2yr = factor(floor(exposure_year/2)*2),
     # Unless someone was suspected of X and was evaluated for it, X will be blank. ‘0’ is a confirmation 'no' while blank is a presumed 'no'
     corrected_anydementia = ifelse(is.na(corrected_anydementia), 0, corrected_anydementia),
     corrected_dsmivdx = ifelse(is.na(corrected_dsmivdx), 0, corrected_dsmivdx),
+    vad_dementia = ifelse(corrected_dsmivdx==2, 1, 0),
+    mixed_dementia = ifelse(corrected_dsmivdx==5, 1, 0),
+    other_dementia = ifelse(corrected_dsmivdx %in% c(3,4,6), 1, 0),
+    non_ad_dementia = ifelse(corrected_dsmivdx %in% c(2:6), 1, 0),
     final_nindx = ifelse(is.na(final_nindx), 0, final_nindx),
     #Time-varying covariates. Could also use age_at_exposure, although it will be less accurate
     ##starting age is age on Jan 1st of a given year if participant was enrolled, or on intake date, whichever came later
@@ -88,12 +121,10 @@ sur <- sur0 %>%
     age_end_exposure = ifelse(format(last_visit, "%Y") == exposure_year,
                               as.numeric(last_visit - birthdt)/365,
                               as.numeric(as.Date(paste0(exposure_year, "-12-31")) - birthdt)/365),
-    ### need to change age_last_visit to age_act for sensitivity analyses
+    ### may need to change age_last_visit to age_act for sensitivity analyses
     #dementia_now = ifelse(age_end_exposure < age_last_visit, 0, anydementia),
     ad_nincds = ifelse(final_nindx %in% c(1,2), 1, 0),
     #ad_now = ifelse(age_end_exposure < age_last_visit, 0, ad_nincds),
-    ## filter out invalid casi scores - not using this
-    #casi_irt = ifelse(casi_valid ==1, casi_irt, NA),
     income_cat = ifelse(tr_med_inc_hshld < 35000, 1,  
                         ifelse(tr_med_inc_hshld >= 35000 & tr_med_inc_hshld < 50000, 2,
                                ifelse(tr_med_inc_hshld >= 50000 & tr_med_inc_hshld < 75000, 3, 4))),  
@@ -106,19 +137,28 @@ sur <- sur0 %>%
     ) %>%
   #time-varying covariates
   group_by(study_id) %>%
-  # --> need to change this if we use act onset age b/c it is 1 yr before the last visit
+  # would need to change this if we use act onset age b/c it is 1 yr before the last visit
   mutate(
     dementia_now = ifelse(exposure_year == max(exposure_year), corrected_anydementia, 0),
     ad_now = ifelse(exposure_year == max(exposure_year), ad_nincds, 0),
+    vad_now = ifelse(exposure_year == max(exposure_year), vad_dementia, 0),
+    mixed_now = ifelse(exposure_year == max(exposure_year), mixed_dementia, 0),
+    other_now = ifelse(exposure_year == max(exposure_year), other_dementia, 0),
+    non_ad_now = ifelse(exposure_year == max(exposure_year), non_ad_dementia, 0),
   ) %>%
   ungroup() %>%
   add_factor_refs()
+# update remaining data counts
+exclusion_table <- count_remaining_sample(sur, description. = "people with 1+ follow-up visits")
+
+# save semi-raw dataset with group categories used in analysis later (e.g., race, ad diagnosis)
+saveRDS(sur, file.path("Data", "Output", "sur0_redefined_categories.rda"))
 
 # --> need to change this if use Onset_Age_ACT (1 yr less for cases)? or will only the age change
 # --> if use act onset age, drop last row for cases
 
 # individual level dataset
-fixed_covars <- names(sur)[!grepl("exp_avg|exp_wks|coverage|imp_qual|cal_|exposure|pollutant|dementia_now|ad_now|onsetage|onsetdate", names(sur))] #DIAGCRIT
+fixed_covars <- names(sur)[!grepl("exp_avg|exp_wks|coverage|imp_qual|cal_|exposure|pollutant|_now$|onsetage|onsetdate", names(sur))] #DIAGCRIT
 sur_person <- select(sur, all_of(fixed_covars)) %>% distinct()
  
 ######################################################################
@@ -131,7 +171,7 @@ missing <- sur_person %>%
   filter(prop_missing >0) %>%
   arrange(-prop_missing) 
 
-saveRDS(missing, file.path("Data", "Output", "missing_table.rda"))
+S(missing, file.path("Data", "Output", "missing_table.rda"))
 
 # drop columns with too much missingness, defined as more than apoe (12%)
 apoe_missing <- missing$prop_missing[missing$covariate=="apoe"] #0.1220489
@@ -217,8 +257,8 @@ apoe_missing_cov <- lasso_results$results$cov
 #      cbind(apoe_available=apoe$apoe_available)
 
 # only include predictors where >= X individuals have that characteristic. Lower values indicate that this is rare in the cohort anyways, and leads to model instability while calculating weights
-# e.g., 1-2 people have characteristic X and one is dropped b/c of no APOE status.
-count_threshold <- 3
+# e.g., 1-2 people out of ~5k have characteristic X and one is dropped b/c of no APOE status.
+count_threshold <- 50 #if >~1% of the population has trait Y, use in IPW  #3
 
 apoe_matrix <- apoe %>%
   model.matrix(apoe_available~., data=.) %>% as.data.frame() %>%
@@ -251,7 +291,7 @@ apoe_male_prob <- predict(apoe_male_m, type = "response")
 apoe_wts <- select(apoe, study_id) %>%
   mutate(model_wt = apoe_male_prob/apoe_available_prob)
 # summary(apoe_wts$model_wt)
-# table(apoe_wts$model_wt>3) # 16 ppl
+# table(apoe_wts$model_wt>3) #ppl w/ high weights
 
 # add to datasets 
 sur <- left_join(sur, apoe_wts) %>% ungroup()
@@ -270,7 +310,7 @@ sur <- add_factor_refs(sur)
 ######################################################################
 coverage_threshold <- 0.95
 
-# drop predictions & indicator variables if below the coverage_threshold
+# drop person-years if below the coverage_threshold
 # since ST predictions will only be used as sensitivity analyses to see if our findings are similar, we want to make sure the person-years used are the same as MM
 # thus, we will drop ST predictions if MM predictions are also dropped due to low covarege in the MM region
 sur <- sur %>%
@@ -295,8 +335,10 @@ sur <- sur %>%
   mutate_at(vars(starts_with("imp_qual05_yr_")), ~ifelse(is.na(exp_avg05_yr_MM), NA, .)) %>%
   mutate_at(vars(starts_with("imp_qual01_yr_")), ~ifelse(is.na(exp_avg01_yr_MM), NA, .)) 
  
+# update remaining data counts. this needs to be done below after reformatting, otherwise the same "counts" are reported
+#exclusion_table <- count_remaining_sample(sur, description. = "drop person-years if below the coverage threshold")
 
-#test %>% select(exp_avg10_yr_MM, exp_wks_coverage10_yr_MM) %>% View() 
+ 
   
 # # drop prediction if lower than a threshold
 # sur$exp_avg10_yr_MM[sur$exp_wks_coverage10_yr_MM < coverage_threshold] <- NA
@@ -341,34 +383,43 @@ initial_py <- sur2 %>%
   ) %>% 
  filter(initial_persons>0)
 
-# drop person-years without predictions
+# drop person-years without predictions after reformatting 
 sur2 <- sur2 %>% drop_na(pollutant_prediction) 
-# --> note, to look at indicator variables, filter to model == "MM". This value repeates for all other models
+#remaining data
+exclusion_table <- sur2 %>%
+  filter(model=="MM", exposure_duration==10) %>%
+  count_remaining_sample(description. = "person-years above the coverage threshold, for 10 yr MM; after formatting data")
 
-# final dataset
-final_py <- sur2 %>%
-  drop_na(pollutant_prediction) %>%
-  # take person-years
-  group_by(pollutant, exp_avg0) %>%
-  summarize(
-    final_persons = length(unique(study_id)),
-    final_person_years = n()) 
+saveRDS(sur2, file.path("Data", "Output", "sur_full_cohort.rda"))
 
-# table of initial & final person years 
-left_join(initial_py, final_py) %>%
-  mutate(
-    prop_persons_dropped = (initial_persons - final_persons)/initial_persons,
-    prop_person_years_dropped = (initial_person_years - final_person_years)/initial_person_years
-  ) %>%
-  kable(caption = "Persons & person-years before and after dropping person-years with insufficient coverage", digits = 3) %>% 
-  kable_styling() %>%
-  save_kable(file.path(image_path, "Other", "sample_person_yrs.pdf"))
+######################################################################
+# REDUCED ANALYSIS COHORT 
+######################################################################
+# people with APOE
+sur3 <- filter(sur2, !is.na(apoe))
+# remaining data
+exclusion_table <- sur3 %>%
+  filter(model=="MM", exposure_duration==10) %>%
+  count_remaining_sample(description. = "cohort with APOE values")
+
+# 2005+ cohort 
+sur3 <- filter(sur3, exposure_year >= first_exposure_year)
+# remaining data
+exclusion_table <- sur3 %>%
+  filter(model=="MM", exposure_duration==10) %>%
+  count_remaining_sample(description. = "2005+ Cohort")
+
+## counts for 2010+
+exclusion_table <- filter(sur3, exposure_year >= 2010) %>%
+  filter(model=="MM", exposure_duration==10) %>%
+  count_remaining_sample(description. = "2010+ Cohort")
 
 ######################################################################
 # FINAL INDIVIDUAL LEVEL FOLLOW UP YEARS (WITH EXPOSURE)
 ######################################################################
 
-complete_fu_yrs <- sur2 %>%
+#complete_fu_yrs <- sur2 %>%
+complete_fu_yrs <- sur3 %>%
   filter(pollutant == first(pollutant),
          model == first(model),
          exposure_duration == first(exposure_duration)
@@ -387,6 +438,8 @@ sur_person <- left_join(complete_fu_yrs, sur_person)
 # SAVE DATA
 ######################################################################
 # all data
-saveRDS(sur2, file.path("Data", "Output", "sur.rda"))
-saveRDS(sur, file.path("Data", "Output", "sur_all_data.rda"))
+saveRDS(sur3, file.path("Data", "Output", "sur.rda"))
+#saveRDS(sur, file.path("Data", "Output", "sur_all_data.rda"))
 saveRDS(sur_person, file.path("Data", "Output", "sur_person.rda"))
+saveRDS(exclusion_table, file.path("Data", "Output", "exclusion_table.rda"))
+

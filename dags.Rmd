@@ -57,14 +57,15 @@ dag_labels <- c("Dementia" = "Dementia",
                              "Sex" = "Sex",
                              "PhysAct" = "Physical\nActivity",
                              "Year" = "Year",
-                             "SES" = "SES"
+                             "SES" = "SES",
+                              "race" = "Race"
                              )
 
-full_dag <-dagify(Dementia~TRAP+BMI+CVHealth+Smoking+APOE+Sex+Year+SES, #+PhysAct+Surv65
-                        TRAP~SES+Year,#+PhysAct,
+full_dag <-dagify(Dementia~TRAP+BMI+CVHealth+Smoking+APOE+Sex+Year+SES+race, #+PhysAct+Surv65
+                        TRAP~SES+race+Year,#+PhysAct,
                         BMI~TRAP,
                         CVHealth~BMI+TRAP+Sex+Smoking,#+PhysAct
-                        Smoking~SES,
+                        Smoking~SES+race,
                         #Surv65~Smoking+CVHealth+BMI+TRAP+SES+Year+Sex,#+PhysAct
                         #PhysAct~Sex,
                         outcome = "Dementia",
@@ -73,27 +74,29 @@ full_dag <-dagify(Dementia~TRAP+BMI+CVHealth+Smoking+APOE+Sex+Year+SES, #+PhysAc
                       coords = list(x =c(TRAP =1,
                                          Dementia = 13,
                                          BMI=3,
-                                         CVHealth=4,
-                                         Smoking=7,
+                                         CVHealth=3,
+                                         Smoking=6,
                                          #Surv65=5,
-                                         APOE=14,
-                                         Sex=9,
+                                         APOE=13,
+                                         Sex=8,
                                          #PhysAct=9,
-                                         Year=12,
+                                         Year=11,
                                          SES=12,
+                                         race = 10,
                                          Smoking=12
                                          ),
                                     y = c(TRAP =4,
                                           Dementia = 4,
                                           BMI=2,
-                                          CVHealth=7,
+                                          CVHealth=6,
                                           Smoking=1,
                                           #Surv65=7,
-                                          APOE=1,
+                                          APOE=7,
                                           Sex=7,
                                           #PhysAct=1,
                                           Year=6,
                                           SES=2,
+                                          race=1,
                                           Smoking=7)))
 
 # ggdag_status(full_dag)
@@ -163,10 +166,10 @@ ggdag_drelationship(final_dag,
                     #text_size = 2,
                     node_size = node_size,
                     #text=F, use_labels = "label",  
-                    controlling_for = c("SES", "APOE", "Year", "Sex"#, "Surv65", "PhysAct"
+                    controlling_for = c("SES", "race", "APOE", "Year", "Sex"#, "Surv65", "PhysAct"
                                         )) + guides(color = FALSE) 
 
-ggsave(file.path(image_path, "Other", "dag_relationship.png"), width = 10, height = 6)
+ggsave(file.path(image_path, "Other", "dag_adjusted.png"), width = 10, height = 6)
 
 ```
 

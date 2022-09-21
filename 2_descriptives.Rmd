@@ -25,10 +25,10 @@ if (!is.null(sessionInfo()$otherPkgs)) {
 }
 
 knitr::opts_chunk$set(echo = F, cache=F, cache.comments = F, message = F, warning = F, 
-                      tidy.opts=list(width.cutoff=60), tidy=TRUE  8
+                      tidy.opts=list(width.cutoff=60), tidy=TRUE   
                       )  
 
-pacman::p_load(kableExtra, tidyverse, table1,
+pacman::p_load(kableExtra, tidyverse, table1, lubridate,
                ggpubr, #stat_cor() for ggplot
                GGally, # ggpairs()
                ggmap, sf, ggspatial, cowplot #mapping...adding scales, N arrows
@@ -46,6 +46,7 @@ image_path <- file.path("..", "manuscript", "images")
 source("functions.R")
 sur_person <- readRDS(file.path("Data", "Output", "sur_person.rda"))
 sur <- readRDS(file.path("Data", "Output", "sur.rda")) 
+exclusion_table <- readRDS(file.path("Data", "Output", "exclusion_table.rda")) 
 
 ## mapping
 lat_long_crs <- 4326  
@@ -53,6 +54,55 @@ m_crs <- 32148 #meters
 
 monitoring_area <- readRDS(file.path("~", "OneDrive - UW", "Documents", "Post Doc", "Study Projects", "ACT TRAP MM", "1. Our Campaign",  "Our Campaign R", "Data", "Output", "GIS", "monitoring_area_shp.rda")) 
 st_area <- read_sf(file.path("~", "OneDrive - UW", "Documents", "School", "PhD", "Dissertation", "GIS", "Shapefiles", "Study area", "Spatiotemporal", "st_area.shp")) #%>% st_transform(project_crs)
+
+```
+
+# --> prisma diagram?
+https://www.eshackathon.org/software/PRISMA2020.html    
+# --> could add inclusion/exclusion count diagram
+https://cran.r-project.org/web/packages/Gmisc/vignettes/Grid-based_flowcharts.html
+
+simple flowchar t 
+https://datascienceplus.com/how-to-build-a-simple-flowchart-with-r-diagrammer-package/ 
+
+* plot is for MM PNC
+
+# --> move more recent cohort? use other program to add what is dropped?
+
+```{r, eval=F}
+# --> ERROR: made me download libs causing issues now???!
+library(DiagrammeR)
+grViz("digraph flowchart {
+      # node definitions with substituted label text
+      node [fontname = Helvetica, shape = rectangle]        
+      tab1 [label = '@@1']
+      tab2 [label = '@@2']
+      tab3 [label = '@@3']
+      tab4 [label = '@@4']
+      tab5 [label = '@@5']
+      tab6 [label = '@@6']
+      tab7 [label = '@@7']
+
+      # edge definitions with the node IDs
+      tab1 -> tab2 -> tab3 ->tab4;
+      tab4 -> tab5;
+      tab4 -> tab6;
+      tab4 -> tab7
+      }
+
+      [1]: paste('Full Cohort (1994-2020)', '\\n n=____', '\\npy=___')
+      [2]: paste('More Recent Cohort (2005-2020)', '\\n n=____', '\\npy=___')
+      [3]: paste('APOE Status Available', '\\n n=____', '\\npy=___')
+      [4]: paste('≥ 95% of Residential Histories Within MM Region')
+      [5]: paste('10 Year Exposure', '\\n n=____', '\\npy=___')
+      [6]: paste('5 Year Exposure', '\\n n=____', '\\npy=___')
+      [7]: paste('1 Year Exposure', '\\n n=____', '\\npy=___')
+      ")
+```
+
+
+```{r}
+
 
 ```
 
@@ -192,7 +242,9 @@ filter(sur,
 first and last visit dates. 
 
 ```{r}
-sur_person$intakedt %>% min() 
+# this doesn't make sense for 2005+ cohort
+#sur_person$intakedt %>% min() 
+
 sur_person$last_visit %>% max() 
 
 ```
@@ -211,18 +263,21 @@ summary_table(., "model_wt") %>%
   kable(caption = "distribution of IPW", digits = 2) %>%
   kable_styling()
 
+print("persons with modelw weights > 2")
+table(sur_person$model_wt>2)
+
 ```
 
 
 # Exposure 
 
-* e.g., from different models
-
-## Table
+## Exposure Table
 
 ```{r}
 sur %>%
-  group_by(pollutant, exposure_duration, model) %>%
+  filter(exposure_duration==10) %>% select(-exposure_duration) %>%
+  group_by(pollutant, #exposure_duration, 
+           Model=model) %>%
   summary_table("pollutant_prediction") %>%
   mutate_at(vars(Min:Max), ~ifelse(grepl("ufp|bc", pollutant),
                                    format(., digits=0, scientific = F, big.mark = ","),
@@ -230,42 +285,26 @@ sur %>%
                                    )) %>%
   mutate_at(vars(N), ~format(., big.mark=",")) %>%
   label_pollutants() %>%
-  filter(exposure_duration==10) %>% #select(-exposure_duration) %>%
-  kable(caption = "Distribution of pollutant predictions for the cohort") %>%
+  select(-N) %>%
+  kable(caption = "Distribution of 10-year average pollutant predictions for the cohort (N=21,950 person-years)") %>%
   kable_styling()
 
 ```
 
-## Boxplots
+## Exposure Boxplots
 
 ```{r}
-sur %>%
-  group_by(model) %>%
-  summarize(
-    start_year = min(exposure_year),
-    end_year = max(exposure_year),
-  )
-
-
-
-print("Distribution of air pollution exposure predictions. tails are the 10th and 90th percentile")
-
+ 
 sur %>%
   filter(exposure_duration ==10) %>%
-  group_by(pollutant, exposure_year, model) %>%
-  alt_boxplot(var = "pollutant_prediction", min_q=0.1, max_q=0.9) %>% 
   label_pollutants() %>%
-  
-  ggplot(aes(x=exposure_year, fill=model, group=interaction(exposure_year, pollutant, model))) + 
-  geom_boxplot(aes(ymin = Qmin, lower=Q25, middle=Q50, upper=Q75, ymax=Qmax), 
-               stat = "identity") + 
+  ggplot(aes(y=pollutant_prediction, x=pollutant, fill=model)) + 
   facet_wrap(~pollutant, scales="free") + 
-  labs(x= "Exposure Assessment Year",
-       y = "Pollutant Prediction",
-       fill = "Model"
-       )
-  
-ggsave(file.path(image_path, "SI", "exposure_over_time_boxplots.png"), height = 8, width = 8)
+  #geom_density(alpha=0.3)
+  geom_boxplot() + 
+  labs(x="", y="Pollutant Prediction", fill="Model", )
+   
+# ggsave(file.path(image_path, "SI", "exposure_boxplots.png"), height = 8, width = 8)
   
 ```
 
@@ -275,8 +314,7 @@ ggsave(file.path(image_path, "SI", "exposure_over_time_boxplots.png"), height = 
 * note, not all rows have predictions for all pollutants b/c:
    * MM is dropped more often than ST b/c of low exp_wks_coverage
 
-# --> why are MM and SP sometimes dropped but not ST? Don't SP and ST have the same spatial coverage?
-# --> ask Roy's replacement to rever back to not using imp_quality, exact_coverage, and imputed_coverage separtely for MM and ST?
+# --> why are MM and SP sometimes dropped but not ST? Don't SP and ST have the same spatial coverage? ask Roy's replacement to revert back to not using imp_quality, exact_coverage, and imputed_coverage separtely for MM and ST?
 
 ```{r}
 cor_df <- sur %>%
@@ -314,8 +352,8 @@ cor(cor_df, method = "pearson") %>%
  
 ## all pollutant 2D histogram
  
-# --> MM PNC correlates better with SP PM2.5 than MM PM2.5. Is this b/c our PM2.5 measurements are unreliable?
-# --> similar for PNC vs MM NO2 and SP No2
+* MM PNC correlates better with SP PM2.5 than MM PM2.5. Is this b/c our PM2.5 measurements are unreliable?   
+* similar for PNC vs MM NO2 and SP No2   
 
 * MM NO2 is well correlated with ST NO2 b/c there is a positive relationship, even though the y-distribution is larger than with SP?
 * MM BC is better correlated with MM PmM.25 than SP PM2.5 (good)
@@ -340,7 +378,7 @@ cor(cor_df) %>%
                                    hjust=1)) + 
   labs(x="", y="", fill="R")
 
-ggsave(file.path(image_path, "SI", "correlations.png"), height = 8, width = 8)
+#ggsave(file.path(image_path, "SI", "correlations.png"), height = 8, width = 8)
   
 ```
 
@@ -374,7 +412,7 @@ sur %>%
     y = "Spatio-Temporal Prediction"
   )
 
-ggsave(file.path(image_path, "SI", "no2_pm25_comparisons.png"), height = 8, width = 8)
+#ggsave(file.path(image_path, "SI", "no2_pm25_comparisons.png"), height = 8, width = 8)
 
 
 ```
@@ -396,7 +434,7 @@ cor_df %>%
           #, lower = list(continuous = wrap("smooth_loess", alpha=0.2))
         ) + scale_x_continuous(guide = guide_axis(check.overlap = TRUE))
 
-ggsave(file.path(image_path, "SI", "ap_comparisons.png"), height = 12, width = 12)
+#ggsave(file.path(image_path, "SI", "ap_comparisons.png"), height = 12, width = 12)
 
 ```
 
@@ -444,9 +482,10 @@ ggsave(file.path(image_path, "SI", "pollutant_correlations.png"), height = 11, w
 
 
 
-# Table 1
- 
 
+
+
+# Table 1
  
  
 ```{r}
@@ -454,35 +493,20 @@ ggsave(file.path(image_path, "SI", "pollutant_correlations.png"), height = 11, w
 baseline_conc_avg <- sur %>%
   filter(exposure_duration==10,
          model== "MM",
-         pollutant %in% c("ufp_10_42", "bc", "no2", "pm25")
-         ) %>%
+         pollutant %in% c("ufp_10_42", "bc", "no2"#, "pm25"
+                          )) %>%
   group_by(study_id) %>%
   filter(exposure_year==first(exposure_year)) %>% 
   group_by(pollutant, exposure_year) %>%
   mutate(
     mean_baseline_conc = mean(pollutant_prediction),
-    above_average = pollutant_prediction >= mean_baseline_conc
-  ) %>%
+    above_average = pollutant_prediction >= mean_baseline_conc) %>%
   ungroup() %>% 
   select(study_id, exposure_year, pollutant, pollutant_prediction, above_average) %>%
   pivot_wider(names_from = pollutant, values_from = c(pollutant_prediction, above_average))
 
 sur_person_t1 <- left_join(sur_person, baseline_conc_avg) %>%
   mutate(apoe_available = !is.na(apoe))
-
-```
-
-```{r}
-# total person-years
-sur_person_t1 %>%
-  group_by(apoe_available) %>%
-  summarize(
-    total_person_years = sum(sur_person_t1$follow_up_years),
-    group_person_years = sum(follow_up_years),
-    prop = round(group_person_years/total_person_years, 2)
-    ) %>%
-  kable(caption = "person-years", format.args = list(big.mark=",")) %>%
-  kable_styling()
 
 ```
 
@@ -509,7 +533,11 @@ t1_labels <- list(
     intakeage = "Age at Intake",
     follow_up_years = "Follow-Up Years",
     corrected_anydementia = "All-Cause Dementia Cases",
-    ad_nincds = "Alzheimer's Disease Cases",
+    ad_nincds = "Alzheimer's Disease Dementia Cases",
+    vad_dementia = "Vascular Dementia",
+    mixed_dementia = "Mixed Dementia",
+    other_dementia = "Other Dementia",
+    non_ad_dementia = "Non Alzheimer's Disease Dementia Cases",
     birth_cohort = "Birth Cohort",
     race_white = "Race",
     degree = "Degree",
@@ -520,8 +548,7 @@ t1_labels <- list(
     above_avg_ufp_10_42 = "Above Avg (PNC)",
     pollutant_prediction_ufp_10_42 = "PNC (pt/cm3)",
     pollutant_prediction_no2 = "NO2 (ppb)",
-    pollutant_prediction_bc = "BC (ng/m3)",
-    pollutant_prediction_pm25 = "PM2.5 (ug/m3)"
+    pollutant_prediction_bc = "BC (ng/m3)" #,  pollutant_prediction_pm25 = "PM2.5 (ug/m3)"
     ),
   units = list(
     intakeage = "Years"
@@ -530,36 +557,37 @@ t1_labels <- list(
     male = list('1' = "Male",
                 '0' = "Female"),
     corrected_anydementia = list('1' = "Yes",
-                                 '0' = "No"
-                                 ),
+                                 '0' = "No"),
+    vad_dementia = list('1' = "Yes", 
+                        '0' = "No"),
+    mixed_dementia = list('1' = "Yes", 
+                        '0' = "No"),
+    other_dementia = list('1' = "Yes", 
+                        '0' = "No"),
+    non_ad_dementia = list('1' = "Yes", 
+                        '0' = "No"),
     ad_nincds = list('1' = "Yes",
                      '0' = "No"
                                  ),
     birth_cohort = list(sort(unique(sur_person$birth_cohort))),
     race_white = list('1' = "White",
-                      '0' = "Non-White"
-                      ),
+                      '0' = "Non-White"),
     degree = list('0' = "None",
                   '1' = "GED/High School",
                   '3' = "Bachelor's",
                   '4' = "Master's",
                   '5' = "Doctorate",
-                  '6' = "Other"
-                  ),
+                  '6' = "Other"),
     income_cat = list('1' = "<$35,000",
                       '2' = "$35,000 - <$50,000",
                       '3' = "$50,000 - <$75,000",
-                      '4' = ">$75,000"
-                      ),
+                      '4' = ">$75,000"),
     apoe = list('1' = "Carriers",
-                '0' = "Non-Carriers"
-                ),
+                '0' = "Non-Carriers"),
     apoe_available = list('TRUE' = "Included in Main Analysis",
-                          'FALSE' = "Not Included in Main Analysis"
-                          ),
+                          'FALSE' = "Not Included in Main Analysis"),
     above_average_ufp_10_42 = list('FALSE' = "Below Avg (PNC)",
-                                   'TRUE' = "Above Avg (PNC)"
-                                   )
+                                   'TRUE' = "Above Avg (PNC)")
     )#, groups=list("", "PNC Conc", "")
   
   ) 
@@ -567,20 +595,22 @@ t1_labels <- list(
 print("Baseline cohort characteristics stratified by whether 10-year average PNC concentration at baseline was below or above that year's average.")
 # Main Table 1
 t1read(filter(sur_person_t1, apoe_available==TRUE), t1_labels) %>%
-  table1(~intakeage + follow_up_years + male + race_white +degree + income_cat + apoe + model_wt + birth_cohort + corrected_anydementia + ad_nincds + pollutant_prediction_ufp_10_42 + pollutant_prediction_no2 + pollutant_prediction_bc + pollutant_prediction_pm25 |above_average_ufp_10_42 , data=., 
+  table1(~intakeage + follow_up_years + male + race_white +degree + income_cat + apoe + model_wt + #birth_cohort + 
+           corrected_anydementia + ad_nincds + non_ad_dementia + #vad_dementia + mixed_dementia + other_dementia + 
+           pollutant_prediction_ufp_10_42 + pollutant_prediction_no2 + pollutant_prediction_bc #+ pollutant_prediction_pm25 
+         |above_average_ufp_10_42 , data=., 
          #groupspan=c(1,2,1)
          # render.continuous = my.render.cont,
          # render.categorical = my.render.cat
          )
 
-cat("\n")
+#cat("\n")
 
-# SI, by APOE STATUS/who is in the mode
-t1read(sur_person_t1, t1_labels) %>%
-  table1(~intakeage + follow_up_years + male + race_white +degree + income_cat + apoe + model_wt + birth_cohort + corrected_anydementia + ad_nincds + pollutant_prediction_ufp_10_42 + pollutant_prediction_no2 + pollutant_prediction_bc + pollutant_prediction_pm25 | apoe_available, data=., )
+# # SI, by APOE STATUS/who is in the mode
+# t1read(sur_person_t1, t1_labels) %>%
+#   table1(~intakeage + follow_up_years + male + race_white +degree + income_cat + apoe + model_wt + birth_cohort + corrected_anydementia + ad_nincds + pollutant_prediction_ufp_10_42 + pollutant_prediction_no2 + pollutant_prediction_bc + pollutant_prediction_pm25 | apoe_available, data=., )
 
 ```
-
 
 
 ## Event ties
@@ -604,4 +634,91 @@ sur %>%
   summarize(event_ties = n()) 
   
 ```
+
+
+# Events over time
+
+# --> no dementia cases between 1995/6-1997?
+
+Number of all-cause dementia cases if we restricted the study to other yaers
+
+```{r}
+sur_person %>%
+  mutate(last_year = year(last_visit)) %>% 
+  group_by(last_year) %>%
+  summarize(dementia_cases = sum(corrected_anydementia)) %>%
+  # ungroup() %>%
+  # mutate(tot_dementia_cases = cumsum(dementia_cases)) %>%# View()
+  
+  ggplot(aes(x=last_year, y=dementia_cases)) +
+  geom_bar(stat="identity")
+  
+  
+lapply(c(1995, 2000, 2005, 2010, 2015), function(x) {
+  sur_person %>%
+    drop_na(apoe) %>%
+    mutate(start_year = year(last_visit)) %>%
+    group_by(start_year) %>%
+    summarize(dementia_cases = sum(corrected_anydementia)) %>% #final_nindx
+    filter(start_year >=x) %>%
+    summarize(start_year = first(start_year),
+              dementia_cases_remaining = sum(dementia_cases))
+  }) %>%
+  bind_rows() %>%
+  mutate(prop = round(dementia_cases_remaining/max(dementia_cases_remaining), 2))
+
+
+```
+
+
+
+
+
+
+# Other 
+
+## Completeness of Follow-Up Index (Clark 2002). 
+
+Paul Crane updated this ~2019/2018 and it was 94.5%
+
+
+It is the ratio of the total observed person-time of follow-up as a percentage of the potential time of follow-up in a study. We define a participant’s potential follow-up as the time from their entry into the study to the cut-off date for the study or the date of the event if it occurred.
+
+The numerator of this expression is the sum of follow-up times, irrespective of whether the event took place or the survival time was censored.
+  * follow-up years
+
+The denominator is the sum of the **potential** follow-up times. 
+
+? how to deal w/ ppl who never have 1 follow-up or those that just leave? We don't know what their **potential** follow-up time would have been since we don't know if they ever get dementia (we only know if they die at some point, but not if they died with or without dementia)
+
+  * could predict whether they are likely to get dementia or not and see the avg age when someone gets dementia with their characteristics?
+
+* ideally, we'd like to follow-up people until they stop being followed b/c: 
+    * get dementia (not necessarily until they die?), the sur0$discontinue_reason is die (check that deathdt is close to last visit date) or have a terminal illness 
+    * ??what is "Disc Referral" and "Disc Annual"?
+
+?? if ppl die (and don't have "terminal illness"), their time should be deathdt-2 years? Assume that if they had not died, they would have attended their next follow-up..doest make sese b/c could have gotten dementia beforehand and that is when the denominaotr clock woul dstop?
+
+
+
+
+```{r}
+# > unique(sur$discontinue_reason)
+# [1] ""                  "Refused"           "Other"             "Terminal Illness"  "Disc Referral"    
+# [6] "Moved Out of Area" "Unable to Locate"  "Disc Annual"      
+
+
+```
+
+# --> ? could just summarize the # people who are lost to follow-up by reason. Don't count those that had a terminal illness or died. 
+
+* hard to otherwise quantify potential FU time until someone Would have gotten dementia. 
+* another paper idea? what have others done? see Weuve papers
+
+```{r}
+
+
+```
+
+
 

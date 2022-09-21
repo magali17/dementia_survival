@@ -25,13 +25,14 @@ if (!is.null(sessionInfo()$otherPkgs)) {
 }
 
 knitr::opts_chunk$set(echo = F, cache=F, cache.comments = F, message = F, warning = F, 
-                      tidy.opts=list(width.cutoff=60), tidy=TRUE 
-                      )  
+                      tidy.opts=list(width.cutoff=60), tidy=TRUE)  
 
 pacman::p_load(kableExtra, 
-               tidyverse
-               )    
+               tidyverse)    
  
+source("functions.R")
+output_data_path <- file.path("Data", "Output")
+
 # ggplot settings
 theme_set(theme_bw())
 theme_update(legend.position = "bottom")
@@ -39,10 +40,18 @@ theme_update(legend.position = "bottom")
 set.seed(1)
 
 image_path <- file.path("..", "manuscript", "images")
- 
+#if(!file.exists(output_data_path)) {dir.create(output_data_path)} 
+if(!file.exists(file.path(image_path, "Other", "HR Plots"))) {dir.create(file.path(image_path, "Other", "HR Plots"))} 
+
+#modeled units
+load(file.path(output_data_path, "trap_model_units.rda"))
+
 # Load files 
-source("functions.R")
+
 hrs0 <- readRDS(file.path("Data", "Output", "hazard_ratios.rda"))
+
+main_models <- str_subset(unique(hrs0$description), "Main" )
+
 hrs <- filter(hrs0, grepl("MM_|SP_|ST_", covariate)) %>%
   mutate( 
     covariate = paste(substr(covariate, 4, str_length(covariate)), substr(covariate, 1, 2), sep = "_"),
@@ -50,24 +59,36 @@ hrs <- filter(hrs0, grepl("MM_|SP_|ST_", covariate)) %>%
     ) %>% 
   rename(pollutant = covariate) %>% 
   label_pollutants() %>%
-  mutate(pollutant = paste(pollutant, exposure_model),
+  mutate(pollutant = gsub(pattern = "PNC (", replacement = paste0("PNC (", pnc_units, " "), x = pollutant, fixed = T), 
+         pollutant = gsub(pattern = "BC (", replacement = paste0("BC (", bc_units, " "), x = pollutant, fixed = T), 
+         pollutant = gsub(pattern = "NO2 (", replacement = paste0("NO2 (", no2_units, " "), x = pollutant, fixed = T), 
+         pollutant = gsub(pattern = "PM2.5 (", replacement = paste0("PM2.5 (", pm25_units, " "), x = pollutant, fixed = T),
+         pollutant = gsub(", ", "\n", pollutant),
          outcome = ifelse(grepl("dementia", outcome), "All-Cause Dementia", "Alzheimer's Disease"),
          pollutant_predictors = str_to_upper(pollutant_predictors),
          pollutant_predictors = gsub("UFP_10_42|UFP_10_70|UFP_20_1K|UFP_36_1K", "PNC", pollutant_predictors),
          pollutant_predictors = gsub("PM25", "PM2.5", pollutant_predictors),
+         # --> update if add models
+         pollutant_predictors = factor(pollutant_predictors, levels = c("PNC", "BC", "NO2", "PM2.5",
+                                                                        "PNC + PM2.5", "BC + PM2.5", "NO2 + PM2.5",
+                                                                        "PNC + BC + NO2 + PM2.5")),
          
-         hr_sig = ifelse((lower95 <1 & upper95<1) | (lower95 >1 & upper95>1), "Significant", "Non-Significant" )
+         significant = ifelse((lower95 <1 & upper95<1) | (lower95 >1 & upper95>1), "Significant", "Non-Significant" ),
+         
+         hr_label = paste0(round(hr,2), " (", round(lower95, 2), "-", round(upper95, 2), ")"),
+         hr_label = ifelse(significant == "Significant", paste0("*", hr_label), hr_label),
+         description = relevel(factor(description), ref = main_models),
+         exposure_duration = factor(exposure_duration, levels = rev(unique(exposure_duration))),
+         exposure_model = gsub("SP", "2019 ST", exposure_model),
+         exposure_model = gsub("MM", "2019 MM", exposure_model),
          )
 
-         
+
+  
 ```
 
-# --> set levels: pollutant, outcome, 
 
-#--> ggplot fn 
-#--> add HRs to plots 
-# --> why BC, PNC CIs so narrow?  
-#--> ? make y axis exposure_model & color by pollutant? or just exposure_model & jitter line/point?
+# HR Plots
 
 * most of the significant HRs come from the SP exposure model
 * 10 yr PNC from the 2005+ exposure year models are the only significant PNC HRs   
@@ -81,50 +102,72 @@ hrs <- filter(hrs0, grepl("MM_|SP_|ST_", covariate)) %>%
 plot_hrs <- function(dt, description., exposure_duration.) {
   
   p <- dt %>%
-    filter(description == description.,#"2005+" #"Main Models"
-           exposure_duration == exposure_duration.
-           ) %>%  
+    filter(description == description., 
+           exposure_duration == exposure_duration.) %>%  
     
-    ggplot(., aes(y=pollutant, x=hr, col=exposure_model, 
-                  shape=hr_sig
-                  #linetype=outcome, shape=outcome 
-                  )) + 
-    facet_grid(rows = vars(pollutant_predictors), cols = vars(outcome), space="free", scales="free_y", 
-               switch = "both") + 
+    ggplot(., aes(y=pollutant, col=exposure_model, shape = significant, 
+                  x=hr, xmin=lower95, xmax=upper95,)) + 
+    facet_grid(rows = vars(pollutant_predictors), cols = vars(outcome), 
+               space="free", scales="free_y", switch = "both") + 
     geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
-    geom_point(size=2) +
-    geom_linerange(aes(xmin = lower95, xmax = upper95), alpha=0.5, size=1) + 
+    geom_pointrange(position = position_dodge(width = 1))+
+    #geom_text(aes(label=hr_label, x=Inf, hjust=1), position = position_dodge(width = 1), size=3)+
     labs(title = paste0(description., "\n", exposure_duration., " Yr Exposure" ), 
-         x= "HR", y="Pollutant", col = "Exposure Model", shape="")
+         x= "HR", y="Pollutant Model", col = "Exposure Model", shape="")
   
   return(p)
 }
 
-# plot_hrs(hrs, description. = "Main Models", exposure_duration. = "10")
+# plot_hrs(hrs, description. = "Main Models (2005+)", exposure_duration. = "10")
+# ggsave(file.path(image_path, "Other", paste0("HR_test.png")), width = 8, height = 10)
 
 ```
 
+note units:   
+* PNC `r pnc_units`   
+* BC `r bc_units`   
+* NO2 `r no2_units`
+* PM2.5 `r pm25_units`
+
+
+"2005+" Models subset to individuals not yet diagnosed with dementia at the start of 2005 (vs 1994/5). Exposure models go back to 1995.
+
+
+some observations   
+* don't see much of an effect w/ screened p-trak and a slightly higher effect for NanoScan & DiSCmini b/c of the different particle sizes they capture? 
 
 ```{r}
-pdf(file.path(image_path, "Other", paste0("HR_plots.pdf")), width = 8, height = 10)
+pdf(file.path(image_path, "Other", "HR plots", paste0("HR_plots_", Sys.Date(), ".pdf")), width = 8, height = 10)
 
-for(t in rev(unique(hrs$exposure_duration))) {
-  lapply(unique(hrs$description), function(x) {
-    p <- plot_hrs(hrs, description. = x, exposure_duration. = t)
-    print(p)
-    #ggsave(file.path(image_path, "Other", paste0("HR ",  x, t, " yr", ".png")), width = 8, height = 10)
+lapply(group_split(hrs, description, exposure_duration), function(x) {
+  plot_hrs(x, description. = first(x$description), exposure_duration. =  first(x$exposure_duration))
   })
-  }
 
 dev.off()
 
+```
 
+# --> save main paper plots
 
-
-  
+```{r}
 
 
 ```
+
+
+
+
+
+# HR vs TRAP concentration plots 
+
+optional, but have to rerun models w/ diff pollutant increments to get the 95% CI estimated; or use delta method? e.g., Fig 1 in https://www.sciencedirect.com/science/article/pii/S016041202100430X?via%3Dihub
+
+```{r}
+
+```
+
+
+
 
 
 
