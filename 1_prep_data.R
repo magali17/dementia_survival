@@ -33,28 +33,32 @@ print_diagnostics <- FALSE
 exclusion_table <- tibble(description = as.character(),  
                         persons = as.numeric(),
                         persons_dropped = as.numeric(),
-                        persons_pct_dropped = as.numeric(),
+                        # persons_pct_dropped = as.numeric(),
                         person_years = as.numeric(),
                         person_years_dropped = as.numeric(),
-                        person_years_pct_dropped = as.numeric()
+                        #person_years_pct_dropped = as.numeric()
+                        notes = as.character(),  
                         )
 
 # fn adds the number of unique persons and person-years for any given dataset to the exclusion tibble
 # dt=sur0
 # description. = "test"
-count_remaining_sample <- function(dt, description.) {
+# notes. = "longer description"
+count_remaining_sample <- function(dt, description., notes.=NA) {
   temp <- distinct(dt, study_id, exposure_year)
   
   exclusion_table <- add_row(exclusion_table,
                        description = description.,
                        persons = length(unique(temp$study_id)),
-                       person_years = nrow(temp))
+                       person_years = nrow(temp),
+                       notes = notes.
+                       )
   
   exclusion_table <- mutate(exclusion_table,
                             persons_dropped = lag(persons) - persons,
-                            persons_pct_dropped = round(persons_dropped/lag(persons), 2)*100,
+                            #persons_pct_dropped = round(persons_dropped/lag(persons), 2)*100,
                             person_years_dropped = lag(person_years) - person_years,
-                            person_years_pct_dropped = round(person_years_dropped/lag(person_years), 2)*100
+                            #person_years_pct_dropped = round(person_years_dropped/lag(person_years), 2)*100
                             )
   
   return(exclusion_table)
@@ -72,7 +76,7 @@ if(file.exists(dt_path)) {
      saveRDS(sur0, dt_path)
    }
 
-exclusion_table <- count_remaining_sample(sur0, description. = "Full cohort/raw data")
+exclusion_table <- count_remaining_sample(sur0, description. = "Full cohort")
 
 ######################################################################
 # MM vs ST COVERAGE
@@ -102,8 +106,9 @@ sur <- sur0 %>%
          last_visit > intakedt #801 ppl dropped# last intakedt is thus 2017-08-01 (vs 2018-09-27)
          ) %>%
   mutate(
-    #2 yr cal categories except for years 2016-2018
-    cal_2yr = factor(floor(exposure_year/2)*2),
+    #2 yr cal categories except for years 2018-2020
+    cal_2yr = floor(exposure_year/2)*2,
+    cal_2yr = factor(ifelse(cal_2yr==2020, 2018, cal_2yr)),
     # Unless someone was suspected of X and was evaluated for it, X will be blank. ‘0’ is a confirmation 'no' while blank is a presumed 'no'
     corrected_anydementia = ifelse(is.na(corrected_anydementia), 0, corrected_anydementia),
     corrected_dsmivdx = ifelse(is.na(corrected_dsmivdx), 0, corrected_dsmivdx),
@@ -149,7 +154,7 @@ sur <- sur0 %>%
   ungroup() %>%
   add_factor_refs()
 # update remaining data counts
-exclusion_table <- count_remaining_sample(sur, description. = "people with 1+ follow-up visits")
+exclusion_table <- count_remaining_sample(sur, description. = "1+ follow-up visits")
 
 # save semi-raw dataset with group categories used in analysis later (e.g., race, ad diagnosis)
 saveRDS(sur, file.path("Data", "Output", "sur0_redefined_categories.rda"))
@@ -360,7 +365,8 @@ sur <- sur %>%
 # SUBSET DATA
 ######################################################################
 sur2 <- sur %>% 
-  select(study_id, birth_cohort, intakeage, last_visit_age, onsetage, Onset_Age_ACT, corrected_anydementia, corrected_dsmivdx, dementia_now, ad_now, age_at_exposure, age_start_exposure, age_end_exposure, exposure_year, 
+  select(study_id, birth_cohort, intakeage, last_visit_age, onsetage, Onset_Age_ACT, corrected_anydementia, corrected_dsmivdx, ends_with("_now"), #dementia_now, ad_now, 
+         age_at_exposure, age_start_exposure, age_end_exposure, exposure_year, 
          pollutant, starts_with("exp_avg10_yr_"), starts_with("exp_avg05_yr_"), starts_with("exp_avg01_yr_"),
          exp_wks_coverage10_yr_MM, exact_coverage10_yr_MM, imputed_coverage10_yr_MM, imp_qual10_yr_MM,
     male, hispanic, race, race_white, apoe, bmi4, degree, income_cat, cal_2yr, model_wt
@@ -374,13 +380,10 @@ sur2 <- sur %>%
 
 # full dataset that still has rows w/ missing/unused exposure values
 initial_py <- sur2 %>%
-  #filter(grepl("10_yr", exp_avg0)) %>%
   group_by(pollutant, exp_avg0) %>%
-   
   summarize(
     initial_persons = length(unique(study_id[!all(is.na(pollutant_prediction))])),
-    initial_person_years = length(pollutant_prediction[!all(is.na(pollutant_prediction))])
-  ) %>% 
+    initial_person_years = length(pollutant_prediction[!all(is.na(pollutant_prediction))])) %>% 
  filter(initial_persons>0)
 
 # drop person-years without predictions after reformatting 
@@ -388,8 +391,9 @@ sur2 <- sur2 %>% drop_na(pollutant_prediction)
 #remaining data
 exclusion_table <- sur2 %>%
   filter(model=="MM", exposure_duration==10) %>%
-  count_remaining_sample(description. = "person-years above the coverage threshold, for 10 yr MM; after formatting data")
+  count_remaining_sample(description. = "High exposure coverage", notes. = "description is for 10 yr MM")
 
+# data with all cohort years, w/ and w/o APOE
 saveRDS(sur2, file.path("Data", "Output", "sur_full_cohort.rda"))
 
 ######################################################################
@@ -400,19 +404,19 @@ sur3 <- filter(sur2, !is.na(apoe))
 # remaining data
 exclusion_table <- sur3 %>%
   filter(model=="MM", exposure_duration==10) %>%
-  count_remaining_sample(description. = "cohort with APOE values")
+  count_remaining_sample(description. = "APOE available")
 
 # 2005+ cohort 
 sur3 <- filter(sur3, exposure_year >= first_exposure_year)
 # remaining data
 exclusion_table <- sur3 %>%
   filter(model=="MM", exposure_duration==10) %>%
-  count_remaining_sample(description. = "2005+ Cohort")
+  count_remaining_sample(description. = "2005+")
 
 ## counts for 2010+
 exclusion_table <- filter(sur3, exposure_year >= 2010) %>%
   filter(model=="MM", exposure_duration==10) %>%
-  count_remaining_sample(description. = "2010+ Cohort")
+  count_remaining_sample(description. = "2010+")
 
 ######################################################################
 # FINAL INDIVIDUAL LEVEL FOLLOW UP YEARS (WITH EXPOSURE)
@@ -437,7 +441,7 @@ sur_person <- left_join(complete_fu_yrs, sur_person)
 ######################################################################
 # SAVE DATA
 ######################################################################
-# all data
+# data for primary analysis
 saveRDS(sur3, file.path("Data", "Output", "sur.rda"))
 #saveRDS(sur, file.path("Data", "Output", "sur_all_data.rda"))
 saveRDS(sur_person, file.path("Data", "Output", "sur_person.rda"))
