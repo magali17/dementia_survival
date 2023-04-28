@@ -1,0 +1,246 @@
+---
+title: "SI"
+output: html_document
+date: '2022-08-19'
+---
+
+* incidence rates for the ACT cohort for the 2022 data freeze
+* Person-years included are those residing in the MM area, not participants in our models or analyses
+
+```{r, setup, include=F}
+# Clear workspace of all objects and unload all extra (non-base) packages
+rm(list = ls(all = TRUE))
+if (!is.null(sessionInfo()$otherPkgs)) {
+  res <- suppressWarnings(
+    lapply(paste('package:', names(sessionInfo()$otherPkgs), sep=""),
+           detach, character.only=TRUE, unload=TRUE, force=TRUE))
+}
+
+knitr::opts_chunk$set(echo = F, cache=F, cache.comments = F, message = F, warning = F, 
+                      tidy.opts=list(width.cutoff=60), tidy=TRUE)  
+
+pacman::p_load(kableExtra, tidyverse, epiR)
+
+# citation("epiR")
+# knitr::write_bib(c(.packages(), "epiR"), file.path("~", "Desktop", "packages.ris"))
+ 
+
+# ggplot settings
+theme_set(theme_bw())
+theme_update(legend.position = "bottom")
+
+set.seed(1)
+
+image_path <- file.path("..", "manuscript", "images")
+ 
+# Load files 
+source("functions.R")
+# analysis cohort
+sur <- readRDS(file.path("Data", "Output", "sur.rda")) %>%
+  filter(exposure_duration==10, model== "MM") %>%
+  distinct(study_id, exposure_year, age_start_exposure, age_end_exposure, corrected_anydementia, dementia_now, male,race_white, degree, income_cat, apoe, bmi4) %>%
+   
+  
+  mutate(
+    follow_up_years = round(age_end_exposure - age_start_exposure, 2),
+    year_group = cut(exposure_year, breaks = seq(2005,2021, 2), right = F),
+    # --> could use ceiling(age_start_exposure) to capture the age participants turned that year
+    Age = cut(age_start_exposure, breaks = seq(65,110, 5), right = F),
+    male = ifelse(male==1, "Male", "Female"),
+    race_white = ifelse(race_white==1, "White", "People of Color"),
+    degree = ifelse(degree==0, "None", 
+                    ifelse(degree==1, "HS/GED", 
+                           ifelse(degree==3, "Bachelor's",
+                                  ifelse(degree==4, "Master's",
+                                         ifelse(degree==5, "Doctorate",
+                                                ifelse(degree==6, "Other", NA)))))),
+    degree = factor(degree, levels = c("None", "HS/GED", "Other", "Bachelor's", "Master's", "Doctorate")),
+    income_cat = ifelse(income_cat==1, "<$3,5000", 
+                        ifelse(income_cat==2, "$35,000-<$50,000", 
+                               ifelse(income_cat==3, "$50,000-<$75,000", ">$75,000"))),  
+    income_cat = factor(income_cat, levels = c("<$3,5000", "$35,000-<$50,000", "$50,000-<$75,000", ">$75,000")),
+    bmi4 = ifelse(bmi4==0, "Underweight", 
+                    ifelse(bmi4==1, "Normal", 
+                           ifelse(bmi4==2, "Overweight",
+                                  ifelse(bmi4==3, "Obese", NA)))),
+    bmi4 = factor(bmi4, levels = c("Underweight", "Normal", "Overweight", "Obese")),
+    apoe = ifelse(apoe==1, "Carrier",
+                  ifelse(apoe==0, "Non-Carrier", NA)),
+    ) %>%
+  rename(Sex=male,
+         Race = race_white,
+         Degree = degree,
+         Income = income_cat,
+         BMI = bmi4,
+         APOEe4 = apoe,
+         Year = year_group
+         )
+ 
+incidence_multiplier <- 1e3
+ 
+```
+
+
+
+
+
+# Main Incidence Rates 
+
+```{r}
+# overall incidence rate
+temp <- sur %>%
+    summarize(
+      persons = length(unique(study_id)),
+      cases = sum(dementia_now),
+      person_years = sum(follow_up_years) #n()
+      )
+
+temp2 <- epi.conf(as.matrix(temp[c("cases", "person_years")]), ctype = "inc.rate", method = "exact")*incidence_multiplier
+
+cbind(temp, temp2)  %>%
+  kable(caption = "Overall incidence rate per 1,000 person-years in main analysis cohort", digits = 2) %>%
+  kable_styling()
+
+```
+
+
+
+```{r}
+# fn returns incidence and 95% CI for a person-year dataset and a time-varying incident case indicator 
+# requires epiR package
+get_incidence <- function(dt=sur, var, cases="dementia_now") {
+  
+  temp <- dt %>%
+    group_by_at(var) %>%
+    summarize(
+      cases = sum(get(cases)),
+      person_years = sum(follow_up_years)) %>%
+    pivot_longer(cols = var, names_to = "variable") %>%
+    mutate(value = as.character(value))
+     
+  temp2 <- epi.conf(as.matrix(temp[c("cases", "person_years")]), ctype = "inc.rate", method = "exact")
+  
+  return(cbind(temp, temp2))
+  }
+
+```
+
+```{r}
+lvls <- c(levels(sur$Age),
+          unique(sur$APOEe4),
+          levels(sur$BMI),
+          levels(sur$Degree),
+          levels(sur$Income),
+          unique(sur$Race),
+          unique(sur$Sex),
+          levels(sur$Year)
+          )
+
+incidences <- lapply(c("Year", "Age", "Sex", "Race", "Degree", "Income", "BMI", "APOEe4"), function(x) get_incidence(var=all_of(x))) %>%
+  bind_rows()  %>%
+  mutate_at(c("est", "lower", "upper"), ~.*incidence_multiplier) %>%  
+  mutate(value = factor(value, levels = lvls))
+
+
+
+# incidences
+```
+
+```{r}
+incidences %>%
+  mutate_at(c("est", "lower", "upper"), ~round(., 2)) %>%
+  mutate(incidence = paste0(est, " (", lower, "-", upper, ")")) %>%
+  rename_all(~str_to_title(.)) %>%
+  select(Variable, Value, Cases, 'Person-Years'=Person_years, "Incidence Rate per 1,000 Person-Years (95% CI))" = Incidence) %>%
+  kable(caption = "All-cause dementia incidence rates in the main analysis cohort") %>%
+  kable_styling()
+
+```
+
+
+```{r}
+incidences %>%
+  ggplot(aes(x=value, y=est, ymin=lower, ymax=upper)) + 
+  facet_wrap(~variable, scales = "free", ncol = 2) + 
+  geom_pointrange() +
+  labs(y = "Incidence Rate per 1,000 Person-Years (95% CI)", x="")
+  
+ggsave(file.path(image_path, "SI", "incience_rates.png"), width = 12, height = 12)
+
+```
+
+
+# test, why are rates so much higher recetnly?
+
+
+```{r}
+library(gridExtra)
+
+year_incidence <- get_incidence(var = "exposure_year") %>%
+  select(year=value, cases, person_years, est, lower, upper)
+
+tbl <- year_incidence %>%
+  mutate_if(is.numeric, ~round(.,2)) %>%
+  tableGrob()
+
+p1 <- year_incidence %>%
+  ggplot(aes(x=year, y=est, ymin=lower, ymax=upper)) +
+  geom_pointrange() +
+  labs(y = "Incidence Rate per 1,000 Person-Years (95% CI)", x="")
+
+
+grid.arrange(p1, tbl)
+ 
+```
+
+
+```{r}
+# TEST - all data for ppl with 1+ follow-ups
+sur2 <- readRDS(file.path("Data", "Output", "sur0_redefined_categories.rda")) %>%
+  distinct(study_id, 
+           intakedt, last_visit,
+           exposure_year, age_start_exposure, age_end_exposure, corrected_anydementia, dementia_now, male,race_white, degree, income_cat, apoe, bmi4) %>%
+  mutate(
+    follow_up_years = round(age_end_exposure - age_start_exposure, 2)
+  )
+
+year_incidence2 <- get_incidence(dt = sur2, var = "exposure_year") %>%
+  select(year=value, cases, person_years, est, lower, upper)
+
+tbl2 <- year_incidence2 %>%
+  mutate_if(is.numeric, ~round(.,2)) %>%
+  tableGrob()
+
+p2 <- year_incidence2 %>%
+  ggplot(aes(x=year, y=est, ymin=lower, ymax=upper)) +
+  geom_pointrange() +
+  labs(y = "Incidence Rate per 1,000 Person-Years (95% CI)", x="")
+
+
+grid.arrange(p2, 
+             tbl2)
+#ggsave(file.path(image_path, "Other", "semi_raw_incience_rates.png"), width = 12, height = 12)
+
+
+
+
+
+```
+
+```{r}
+sur2 %>%
+  group_by(exposure_year) %>%
+  summarize(
+    people = length(unique(study_id)),
+    person_years = sum(follow_up_years),
+    mean_age = mean(age_start_exposure),
+    apoe_carriers = mean(as.numeric(as.character(apoe)), na.rm=T),
+    income_cat = mean(as.numeric(as.character(income_cat)), na.rm=T),
+    white = mean(as.numeric(as.character(race_white)), na.rm=T)
+  ) %>%
+  kable() %>%
+  kable_styling()
+
+
+```
+
