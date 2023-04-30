@@ -1,0 +1,34 @@
+---
+title: "Rachel's PM2.5 Survival Analysis"
+output: html_document
+date: '2022-08-18'
+---
+
+# Purpose
+
+The purpose of this script is to repeat Rachel's PM2.5 work with the latest ST predictions to ensure that our results are more/less similar.
+
+Changes since Rachel's study:    
+* larger sample size
+* Updated ST exposure prediction models where the (?) temporal piece has been updated    
+* forward stewise selection vs Lasso for APOE missingness  
+
+
+Caveats:  
+* This analysis uses the latest survival dataset with updated ST model PM2.5 exposure predictions, but restricts the analysis to the years and subject IDs used in Rachel's analysis. There may thus be some slight differences in what is included due to _________
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+
+
+
+
+
+
+ 
