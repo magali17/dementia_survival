@@ -1,5 +1,5 @@
 ---
-title: "Rachel's PM2.5 Survival Analysis"
+title: "PM2.5 Survival Analysis QC check"
 output: html_document
 date: '2022-08-18'
 ---
@@ -9,23 +9,304 @@ date: '2022-08-18'
 The purpose of this script is to repeat Rachel's PM2.5 work with the latest ST predictions to ensure that our results are more/less similar.
 
 Changes since Rachel's study:    
-* larger sample size
-* Updated ST exposure prediction models where the (?) temporal piece has been updated    
-* forward stewise selection vs Lasso for APOE missingness  
+* larger sample size (more persons & years)   
+* Updated ST exposure prediction models where the (?) temporal piece has been updated     
+* Rachel used forward stewise selection, I used Lasso for IPW (APOE missingness)
+* we are now using NDI not median household census tract income
+* the exposure coverage threshold is set to 0.5, not 0.95 (as before) b/c the MM "start" year is 1988, and it automatically starts to decrease prior to 1998. 1997 and before was being dropped when we used a 0.95 cut off.
 
 
 Caveats:  
-* This analysis uses the latest survival dataset with updated ST model PM2.5 exposure predictions, but restricts the analysis to the years and subject IDs used in Rachel's analysis. There may thus be some slight differences in what is included due to _________
+* The New dataset in this analysis uses the latest survival data (updated ST model PM2.5 exposures) , but restricts the analysis to the years and subject IDs used in our earlier analysis (PhD). There ares still some slight differences. 
+
+# Rachel reported
+
+HR: 1.16 (1.03,1.31) for 1 ug/m3 PM2.5
+
+dementia(age time axis) ~ PM2.5(age) + strata(apoe) + degree + sex + median_household_income + race + year (2 yr)
 
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+
+```{r setup, include=FALSE, ECHO=F}
+knitr::opts_chunk$set(echo = FALSE)
+
+######################################################################
+# SETUP
+######################################################################
+rm(list = ls(all = TRUE))
+if (!is.null(sessionInfo()$otherPkgs)) {
+  res <- suppressWarnings(
+    lapply(paste('package:', names(sessionInfo()$otherPkgs), sep=""),
+           detach, character.only=TRUE, unload=TRUE, force=TRUE))
+}
+
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, lubridate, kableExtra, survival) #survminer,
+
+# citation("survival")
+#knitr::write_bib(c(.packages(), "survival"), file.path("~", "Desktop", "packages.ris"))
+
+
+set.seed(1)
+
+# ggplot settings
+theme_set(theme_bw())
+theme_update(legend.position = "bottom")
+
+###########################################
+# NEW DATA 
+###########################################
+fp <- file.path("Data", "Output")
+
+load(file.path(fp, "sur_w.rda"))
+load(file.path(fp, "cox_model_fns.rda"))
+
+main_exposure_duration <- 10
+start_of_bad_yrs <- 2019 
+
+
+###########################################
+# OLD DATA 
+###########################################
+old_sur <- readRDS(file.path("Data", "phd_analysis", "20210203 Survival", "dem.w.rda")) %>%
+  mutate(dataset = "old",
+         exposure_duration = 10)
+
+old_ids <- distinct(old_sur, study_id, exposure_year)
+
+###########################################
+# COMPARISON
+###########################################
+#10yr
+d1.0 <- old_sur %>%
+  select(study_id,  cal_2yr= cal_t, dementia_now, age_start_exposure, age_end_exposure, exposure_year, 
+         apoe, male, income_cat, race_white, degree, ST_pm25 = pm25_10yr,
+         ST_pm25_1yr = pm25_1yr,
+         exposure_duration, model_wt, dataset
+         )  %>%
+  drop_na(ST_pm25) %>% # e.g. no coverage
+  # why do i have to do this???
+  distinct()
+
+#10 yr
+d1.0_10yr <- select(d1.0, -ST_pm25_1yr)  
+# 1yr exposure
+d1.0_1yr <- select(d1.0, -ST_pm25) %>%
+  rename(ST_pm25=ST_pm25_1yr)
+
+# new dataset with same IDs and years
+d20 <- mutate(sur_w, dataset="new") %>%
+  drop_na(ST_pm25) %>%
+  filter(exposure_duration == 10) 
+
+d2 <- left_join(old_ids, d20) %>%
+  select(names(d1.0_10yr))
+
+#keep id-years from the old dataset in the new prediction dataset
+#10 yr
+comp <- rbind(d1.0_10yr, d2)
+
+#1 yr
+
+d20_1yr <- mutate(sur_w, dataset="new") %>%
+  drop_na(ST_pm25) %>%
+  filter(exposure_duration == 1) 
+
+d2_1yr <- left_join(old_ids, d20_1yr) %>%
+  select(names(d1.0_1yr))
+
+comp_1yr <- rbind(d1.0_1yr, d2_1yr)
+
+
+
+
+
+###########################################
+# MODELS W/ NEW DATASET
+###########################################
+#current 
+m1 <- sur_w %>%
+  mutate(cal_2yr = droplevels(cal_2yr)) %>%
+  run_cox(.,pollutant_predictors = "ST_pm25", event_indicator = "dementia_now") %>%  
+  mutate(description = "Main ST PM2.5 Model")
+
+#
+m2 <- sur_w %>%
+  #comp %>% filter(dataset=="old") %>%
+  mutate(cal_2yr = droplevels(cal_2yr)) %>%
+  run_cox(.,pollutant_predictors = "ST_pm25", event_indicator = "dementia_now", 
+          #other_predictors = c("cal_2yr", "degree", "income_cat"),
+          other_predictors = c("cal_2yr", "degree", "income_cat", "male", "race_white"),
+          ) %>%  
+  mutate(description = "income_cat")
+
+
+# m3 <- sur_w %>%
+#   mutate(cal_2yr = droplevels(cal_2yr)) %>%
+#   run_cox(.,pollutant_predictors = "ST_pm25", event_indicator = "dementia_now", 
+#           other_predictors = c("cal_2yr", "degree", "nses_z_cx", "male", "race_white"),
+#           stratification = c("apoe")) %>%  
+#   mutate(description = "only apoe stratification")
+
+# m4 <- sur_w %>%
+#   mutate(cal_2yr = droplevels(cal_2yr)) %>%
+#   run_cox(.,pollutant_predictors = "ST_pm25", event_indicator = "dementia_now", 
+#           other_predictors = c("cal_2yr", "degree", "income_cat", "male", "race_white"),
+#           stratification = c("apoe")) %>%  
+#   mutate(description = "income_cat and apoe stratification")
+
+m3 <- sur_w %>%
+  filter(exposure_year < start_of_bad_yrs)  %>%
+  mutate(cal_2yr = droplevels(cal_2yr)) %>%
+  run_cox(.,pollutant_predictors = "ST_pm25", event_indicator = "dementia_now", 
+          #other_predictors = c("cal_2yr", "degree", "income_cat")
+          other_predictors = c("cal_2yr", "degree", "income_cat", "male", "race_white"),
+          ) %>%  
+  mutate(description = "income_cat; 1994-2018")
+
+  # run_cox(.,pollutant_predictors = "ST_pm25", event_indicator = "dementia_now") %>%  
+  # mutate(description = "drop 2019+")
+
+
+# m6 <- sur_w %>%
+#   filter(exposure_year < start_of_bad_yrs)  %>%
+#   mutate(cal_2yr = droplevels(cal_2yr)) %>%  
+#   run_cox(.,pollutant_predictors = "ST_pm25", event_indicator = "dementia_now", 
+#           other_predictors = c("cal_2yr", "degree", "income_cat", "male", "race_white"),
+#           stratification = c("apoe")) %>%  
+#   mutate(description = "income_cat and apoe stratification; 1994-2018")
+
+
+
+###########################################
+# MODELS W/ OLD DATASET
+###########################################
+# findings from old dataset - similar to before
+m1_old <- comp %>% 
+  filter(dataset=="old") %>% 
+  mutate(cal_2yr = droplevels(cal_2yr)) %>% 
+  
+  run_cox(.,pollutant_predictors = "ST_pm25", event_indicator = "dementia_now", 
+          other_predictors = c("cal_2yr", "degree", "income_cat", "male", "race_white"),
+          ) %>%  
+  mutate(description = "OLD: income_cat; 1994-2018") #
+
+m2_old <- comp %>% 
+  filter(dataset=="old",
+         exposure_year >= 2010) %>%
+  mutate(cal_2yr = droplevels(cal_2yr)) %>%
+  
+  run_cox(.,pollutant_predictors = "ST_pm25", event_indicator = "dementia_now", 
+          other_predictors = c("cal_2yr", "degree", "income_cat", "male", "race_white")
+          ) %>%  
+  mutate(description = "OLD: income_cat; >=2010")
+
+m3_old <- comp %>% 
+  filter(dataset=="old",
+         exposure_year < 2010) %>%  
+  mutate(cal_2yr = droplevels(cal_2yr)) %>%
+  
+  run_cox(.,pollutant_predictors = "ST_pm25", event_indicator = "dementia_now", 
+          other_predictors = c("cal_2yr", "degree", "income_cat", "male", "race_white")) %>%  
+  mutate(description = "OLD: income_cat; <2010")
+
+m4_old <- comp %>% 
+  filter(dataset=="old",
+         exposure_year >= 2005) %>%
+  mutate(cal_2yr = droplevels(cal_2yr)) %>%
+  
+  run_cox(.,pollutant_predictors = "ST_pm25", event_indicator = "dementia_now", 
+          other_predictors = c("cal_2yr", "degree", "income_cat", "male", "race_white")) %>%  
+  mutate(description = "OLD: income_cat; >=2005")
+
+m5_old <- comp %>% 
+  filter(dataset=="old",
+         exposure_year < 2005) %>%  
+  mutate(cal_2yr = droplevels(cal_2yr)) %>%
+  
+  run_cox(.,pollutant_predictors = "ST_pm25", event_indicator = "dementia_now", 
+          other_predictors = c("cal_2yr", "degree", "income_cat", "male", "race_white")) %>%  
+  mutate(description = "OLD: income_cat; <2005")
+
+
+###########################################
+# COMBINE MODELS 
+###########################################
+# combine model results
+new_dt_models <- lapply(c(1:3), function(x) {get(paste0("m", x))}) %>%
+  bind_rows() 
+
+old_dt_models <- lapply(c(1:5), function(x) {get(paste0("m", x, "_old"))}) %>%
+  bind_rows() 
+
+
+
+models <-bind_rows(new_dt_models, old_dt_models) %>%
+  filter(covariate == "ST_pm25") %>%
+  mutate(dataset = ifelse(grepl("OLD", description), "OLD", "NEW"),
+         description = gsub("OLD: ", "", description)
+         )
+ 
+
+
 ```
 
+```{r}
+###########################################
+# HR PLOTS
+###########################################
+message("keeping the same id-years from the old dataset in the new prediction dataset")
+message("the old dataset results are sensitive to the exposure years included")
+
+models %>%
+ggplot(., aes(y=description, col=dataset, #shape = significant, 
+                  x=hr, xmin=lower95, xmax=upper95,)) + 
+  #facet_grid(~dataset, scales = "free_y") +
+   
+    geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
+    geom_pointrange(position = position_dodge(width = 1))+
+    labs(title = "HRs for 10 yr avg ST PM2.5 (no other pollutants in model)",
+         x= "HR", y="Pollutant Model", col = "Dataset", shape="")
+
+```
+
+I had to drop the exposure coverage requirement from 98% for 10 yr window to 50% b/c earlier years have low MM exposure coverage (Amanda set the "start" date to 1988?)
+
+```{r}
+message("keeping the same id-years from the old dataset in the new prediction dataset")
+comp %>% 
+  mutate(exposure_year = factor(exposure_year)) %>%
+  ggplot(aes(#x=cal_2yr, 
+    x=exposure_year,
+             y=ST_pm25, col=dataset)) + 
+  geom_boxplot()
 
 
+message("there are some strange patterns in the extremes")
+
+comp %>%
+#comp_1yr %>%
+
+  select(study_id, exposure_year, #cal_2yr,
+         dataset, ST_pm25) %>%  
+  pivot_wider(names_from = dataset, values_from = ST_pm25) %>% #View()
+  mutate(exposure_year = factor(exposure_year)) %>% 
+  
+  #why have to do this??
+  drop_na(old, new) %>%
+  
+  ggplot(aes(x=old, y=new, col=exposure_year)) + 
+  #facet_wrap(~cal_2yr, scales="free") +
+  geom_point(alpha=0.1) + 
+  geom_smooth() + 
+  geom_abline(slope = 1, intercept = 0) +
+  labs(title="10 yr PM2.5 predictions")
+  
+
+# weights
 
 
+```
 
 
 

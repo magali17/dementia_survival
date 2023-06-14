@@ -49,7 +49,7 @@ add_factor_refs <- function(dt) {
                apoe = relevel(factor(apoe), ref = "0"),
                male = relevel(factor(male), ref = "0"),
                degree = relevel(factor(degree), ref = "1"),
-               income_cat = relevel(factor(income_cat), ref = "3"),
+               #income_cat = relevel(factor(income_cat), ref = "3"),
                race_white = relevel(factor(race_white), ref = "1"),
                cal_2yr = relevel(factor(cal_2yr), ref = "1996"), #was 2004 before
                )
@@ -92,13 +92,14 @@ summary_table <- function(dt, var) {
     summarize(
       N = length(var),
       Min = min(var),
-      Mean = mean(var),
-      SD = sd(var),
+      #Mean = mean(var),
+      Q25 = quantile(var, 0.25),
       Median = median(var),
-      IQR = IQR(var),
+      Q75 = quantile(var, 0.75),
+      #SD = sd(var),
+      #IQR = IQR(var),
       Max = max(var)
     )
-  
 }
 
 ###############################################################################################################
@@ -130,27 +131,74 @@ alt_boxplot <- function(df, var, min_q=0.025, max_q=0.975){
 ######################################################################
 # fn relabels pollutants, adds units
 
+# sort(unique(sur$pollutant))
+
+# --> find label for bins
+
 label_pollutants <- function(dt) {
   dt <- dt %>%
     mutate(pollutant = case_when(
       pollutant == "ufp_10_42" ~ "PNC (pt/cm3), NanoScan",
       pollutant == "ufp_20_1k" ~ "PNC (pt/cm3), P-TRAK",
-      pollutant == "ufp_36_1k" ~ "PNC (pt/cm3), Screened P-TRAK",
+      #pollutant == "ufp_36_1k" ~ "PNC (pt/cm3), Screened P-TRAK",
       pollutant == "ufp_10_70" ~ "PNC (pt/cm3), DiSCmini",
       pollutant == "bc" ~ "BC (ng/m3)",
       pollutant == "no2" ~ "NO2 (ppb)",
       pollutant == "pm25" ~ "PM2.5 (ug/m3)",
-      pollutant == "co2" ~ "CO2 (ppm)"
+      pollutant == "co2" ~ "CO2 (ppm)",
+      
+      pollutant=="ns_10_100" ~ "PNC, 10-100 nm (pt/cm3)",
+      pollutant=="ns_11.5" ~ "PNC, 10-13 nm (pt/cm3)",
+      pollutant=="ns_15.4" ~ "PNC, 13-18 nm (pt/cm3)",
+      pollutant=="ns_20.5" ~ "PNC, 18-24 nm (pt/cm3)",
+      pollutant=="ns_27.4" ~ "PNC, 24-32 nm (pt/cm3)",
+      pollutant=="ns_36.5" ~ "PNC, 32-42 nm (pt/cm3)",
+      pollutant=="ns_48.7" ~ "PNC, 42-56 nm (pt/cm3)",
+      pollutant=="ns_64.9" ~ "PNC, 56-75 nm (pt/cm3)",
+      pollutant=="ns_86.6" ~ "PNC, 75-100 nm (pt/cm3)",
+      pollutant=="ns_115.5" ~ "PNC, 100-133 nm (pt/cm3)",
+      pollutant=="ns_154.0" ~ "PNC, 133-178 nm (pt/cm3)",
+      
+      pollutant=="pnc_20_36" ~ "PNC, 20-36 nm (pt/cm3)", #screened - unscreened P-TRAK
+      pollutant=="ufp_36_1k" ~ "PNC, 36-1k nm (pt/cm3)", #screened P-TRAK
+      
+      pollutant == "pnc_onrd" ~ "PNC (pt/cm3), Onroad", # P-TRAK
+      
+      pollutant == "pmdisc_sz" ~ "Median Pt Size, DiSCmini", # Disc
+      
+      TRUE~pollutant #  blue_bc, green_bc, red_bc, uv_bc,
       ),
       pollutant = factor(pollutant, levels = c("PNC (pt/cm3), NanoScan",
                                                "PNC (pt/cm3), P-TRAK",
-                                               "PNC (pt/cm3), Screened P-TRAK",
+                                               #"PNC (pt/cm3), Screened P-TRAK",
                                                "PNC (pt/cm3), DiSCmini",
                                                "BC (ng/m3)",
                                                "NO2 (ppb)",
                                                "PM2.5 (ug/m3)",
-                                               "CO2 (ppm)"))
-      )
+                                               "CO2 (ppm)",
+                         
+                         
+                         "PNC, 10-100 nm (pt/cm3)",
+                         "PNC, 10-13 nm (pt/cm3)",
+                         "PNC, 13-18 nm (pt/cm3)",
+                         "PNC, 18-24 nm (pt/cm3)",
+                         "PNC, 24-32 nm (pt/cm3)",
+                         "PNC, 32-42 nm (pt/cm3)",
+                         "PNC, 42-56 nm (pt/cm3)",
+                         "PNC, 56-75 nm (pt/cm3)",
+                         "PNC, 75-100 nm (pt/cm3)",
+                         "PNC, 100-133 nm (pt/cm3)",
+                         "PNC, 133-178 nm (pt/cm3)",
+                         "PNC, 178-237 nm (pt/cm3)",
+                         
+                         "PNC, 20-36 nm (pt/cm3)",
+                         "PNC, 36-1k nm (pt/cm3)",
+                         "PNC (pt/cm3), Onroad",
+                         "Median Pt Size, DiSCmini",
+                         
+                         "uv_bc", "blue_bc", "green_bc", "red_bc"
+                         ))
+      ) 
   return(dt)
 }
 

@@ -15,6 +15,8 @@ editor_options:
   chunk_output_type: console
 ---
 
+# Data
+
 ```{r, setup, include=F}
 # Clear workspace of all objects and unload all extra (non-base) packages
 rm(list = ls(all = TRUE))
@@ -48,21 +50,25 @@ load(file.path(output_data_path, "trap_model_units.rda"))
 
 # Load files 
 
-hrs0 <- readRDS(file.path("Data", "Output", "hazard_ratios.rda"))
+hrs0 <- readRDS(file.path("Data", "Output", "hazard_ratios.rda")) %>%
+  filter(!grepl("_bc|co2", pollutant_predictors))
 
 main_models <- str_subset(unique(hrs0$description), "Main" )
 
-hrs <- filter(hrs0, grepl("MM_|SP_|ST_", covariate)) %>%
+hrs <- hrs0 %>%
+  filter(grepl("MM_|SP_|ST_", covariate),
+         !grepl("Interaction", description)) %>% 
   mutate( 
     covariate = paste(substr(covariate, 4, str_length(covariate)), substr(covariate, 1, 2), sep = "_"),
     covariate = substr(covariate, 1, str_length(covariate)-3),
     model = ifelse(str_count(pollutant_predictors, "\\+")==0, "Single Pollutant",
-                   ifelse(str_count(pollutant_predictors, "\\+")==1, "Bi-Pollutant (+PM2.5)",
-                          ifelse(str_count(pollutant_predictors, "\\+")>1, "Quad-Pollutant (PNC+BC+NO2+PM2.5)", NA))),
-    model = factor(model, levels = c("Single Pollutant", "Bi-Pollutant (+PM2.5)", "Quad-Pollutant (PNC+BC+NO2+PM2.5)"))
+                   ifelse(str_count(pollutant_predictors, "\\+")==1, "Bi-Pollutant\n(+PM2.5)",
+                          ifelse(str_count(pollutant_predictors, "\\+")==2, "Tri-Pollutant",
+                                 ifelse(str_count(pollutant_predictors, "\\+")==3, "Quad-Pollutant\n(PNC+BC+NO2+PM2.5)", NA)))),
+    model = factor(model, levels = c("Single Pollutant", "Bi-Pollutant\n(+PM2.5)", "Tri-Pollutant", "Quad-Pollutant\n(PNC+BC+NO2+PM2.5)"))
     ) %>% 
   rename(pollutant = covariate) %>% 
-  label_pollutants() %>%
+  label_pollutants() %>% 
   mutate(pollutant = gsub(pattern = "PNC (", replacement = paste0("PNC (", pnc_units, " "), x = pollutant, fixed = T), 
          pollutant = gsub(pattern = "BC (", replacement = paste0("BC (", bc_units, " "), x = pollutant, fixed = T), 
          pollutant = gsub(pattern = "NO2 (", replacement = paste0("NO2 (", no2_units, " "), x = pollutant, fixed = T), 
@@ -73,12 +79,12 @@ hrs <- filter(hrs0, grepl("MM_|SP_|ST_", covariate)) %>%
                                  ifelse(outcome == "non_ad_now", "Non-AD Dementia", NA))),
          outcome = factor(outcome, levels = c("All-Cause Dementia", "AD Dementia", "Non-AD Dementia")),
          pollutant_predictors = str_to_upper(pollutant_predictors),
-         pollutant_predictors = gsub("UFP_10_42|UFP_10_70|UFP_20_1K|UFP_36_1K", "PNC", pollutant_predictors),
-         pollutant_predictors = gsub("PM25", "PM2.5", pollutant_predictors),
+         pollutant_predictors = gsub("UFP_10_42|UFP_10_70|UFP_20_1K|UFP_36_1K|_NS", "PNC", pollutant_predictors),
+         pollutant_predictors = gsub("PM25", "PM2.5", pollutant_predictors), #) %>% View() #,
          # --> update if add models
-         pollutant_predictors = factor(pollutant_predictors, levels = c("PNC", "BC", "NO2", "PM2.5",
-                                                                        "PNC + PM2.5", "BC + PM2.5", "NO2 + PM2.5",
-                                                                        "PNC + BC + NO2 + PM2.5")),
+         # pollutant_predictors = factor(pollutant_predictors, levels = c("PNC", "BC", "NO2", "PM2.5",
+         #                                                                "PNC + PM2.5", "BC + PM2.5", "NO2 + PM2.5",
+         #                                                                "PNC + BC + NO2 + PM2.5")),
          
          significant = ifelse((lower95 <1 & upper95<1) | (lower95 >1 & upper95>1), "Significant", "Non-Significant" ),
          
@@ -90,17 +96,70 @@ hrs <- filter(hrs0, grepl("MM_|SP_|ST_", covariate)) %>%
          exposure_model = gsub("MM", "2019 MM", exposure_model),
          )
   
+#TEST
+pollutant_levels <- c("PNC (1000 pt/cm3)\nNanoScan", "PNC (1000 pt/cm3) NanoScan",
+                      "BC (100 ng/m3)", "NO2 (5 ppb)", "PM2.5 (1 ug/m3)",
+                      
+                      #NS bins
+                      "PNC\n10-100 nm (pt/cm3)", 
+                      "PNC\n10-13 nm (pt/cm3)",
+                      "PNC\n13-18 nm (pt/cm3)",
+                      "PNC\n18-24 nm (pt/cm3)" ,
+                      "PNC\n24-32 nm (pt/cm3)",
+                      "PNC\n32-42 nm (pt/cm3)",
+                      "PNC\n42-56 nm (pt/cm3)",
+                      "PNC\n56-75 nm (pt/cm3)",
+                      "PNC\n75-100 nm (pt/cm3)",
+                      "PNC\n100-133 nm (pt/cm3)",
+                      "PNC\n133-178 nm (pt/cm3)",
+                      
+                      #P-trak differences
+                      "PNC\n20-36 nm (pt/cm3)",
+                      "PNC\n36-1k nm (pt/cm3)",
+                      
+                      #other total UFP instruments
+                      "PNC (1000 pt/cm3)\nP-TRAK", "PNC (1000 pt/cm3)\nDiSCmini",
+                      
+                      #onroad PTRAK
+                      "PNC (1000 pt/cm3)\nOnroad",
+                      
+                      #size
+                      "Median Pt Size\nDiSCmini"
+                      )
+hrs <- hrs %>%
+  mutate(pollutant = factor(pollutant, levels = c(pollutant_levels)))
+
+
+# exploratory interaction
+hrs_em <- hrs0 %>%
+  filter(grepl("MM_|SP_|ST_", covariate),
+         !grepl("pm25", covariate),
+         grepl("Interaction", description),
+         !grepl("P-Value", description),
+         ) %>%
+  mutate(
+    significant = ifelse((lower95 <1 & upper95<1) | (lower95 >1 & upper95>1), "Significant", "Non-Significant" ),
+    hr_label = paste0(round(hr,2), " (", round(lower95, 2), "-", round(upper95, 2), ")"),
+    hr_label = ifelse(significant == "Significant", paste0(hr_label, "*"), hr_label)) %>% 
+  select(covariate, description, hr_label, hr, lower95, upper95) 
+
+
+#TEST
+hrs %>% filter(model == "Single Pollutant",
+               pollutant_predictors == "PM2.5"
+               ) %>% View()
+ 
 ```
 
 
 # HR Plots
 
-* most of the significant HRs come from the SP exposure model
+* most of the significant HRs come froem the SP exposure model
 * 10 yr PNC from the 2005+ exposure year models are the only significant PNC HRs   
 
 ```{r}
 # dt = hrs
-# description. = "Main Models"
+# description. = "Main Analysis"
 # exposure_duration. = "10"
 
 # fn returns HR plots
@@ -123,7 +182,7 @@ plot_hrs <- function(dt, description., exposure_duration., row_facet = "pollutan
   return(p)
 }
 
-# plot_hrs(hrs, description. = "Main Models (2005+)", exposure_duration. = "10")
+# plot_hrs(hrs, description. = "Main Analsis (2005+)", exposure_duration. = "10")
 # ggsave(file.path(image_path, "Other", paste0("HR_test.png")), width = 8, height = 10)
 
 ```
@@ -143,8 +202,8 @@ some observations
 
 ## Plots for all HRs
 
-```{r}
-
+```{r, eval=F}
+#not really using
 pdf(file.path(image_path, "Other", "HR plots", paste0("HR_plots_", Sys.Date(), ".pdf")), width = 8, height = 10)
 
 lapply(group_split(hrs, description, exposure_duration), function(x) {
@@ -155,37 +214,100 @@ dev.off()
 
 ```
 
+## PM2.5
+
+```{r}
+hrs %>%
+  filter(grepl("single pollutant", model, ignore.case = T),
+         grepl("PM2.5", pollutant, ignore.case = T)
+         ) %>%
+  plot_hrs2() + 
+  facet_grid(rows = vars(exposure_model), switch = "both")
+
+
+```
+
 ## Main analysis: all-cause, 10 yr exposure
+
+
+```{r, eva=F}
+##TEST 
+# --> see if a forest plot would work easily for all 3 pollutants here?
+# https://cran.r-project.org/web/packages/forestploter/vignettes/forestploter-intro.html 
+
+pacman::p_load(grid, forestploter)
+
+p1_t <- hrs %>%
+  filter(grepl("Main", description),
+        !grepl("PM2.5|DiSCmini|P-TRAK", pollutant),
+        # dont include SP or ST NO2
+        grepl("2019 MM", exposure_model)) %>%
+  # mutate(
+  #   pollutant = gsub("\nNanoScan", "", pollutant)) %>%   
+  select(pollutant, hr, lower95, upper95, model, hr_label) %>% 
+  mutate(
+    pollutant = gsub("\nNanoScan", "", pollutant),
+    ` ` = paste(rep(" ", 20), collapse = " ")
+  )
+    
+forest(p1_t[,c(1,5:7)],
+        est = p1_t$hr,
+        lower = p1_t$lower95, 
+        upper = p1_t$upper95,
+        #sizes = .$se,
+        ci_column = 2,
+        ref_line = 1,
+        arrow_lab = c("Protective", "Detrimental")
+        # xlim = c(0, 4),
+        # ticks_at = c(0.5, 1, 2, 3),
+        )
+
+ 
+
+
+
+```
+
 
 ```{r}
 plot_hrs2 <- function(dt) {
   p <- dt %>%
-    ggplot(., aes(y=model, col=model, #shape = significant, 
+    ggplot(., aes(y=model, col=pollutant, #col=model,  
                   x=hr, xmin=lower95, xmax=upper95,)) + 
     facet_grid(rows = vars(pollutant),
-               cols = vars(outcome), 
+               #cols = vars(outcome), 
                space="free", scales="free_y", switch = "both") + 
     geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
     geom_pointrange(position = position_dodge(width = 1)) +
-    geom_text(aes(label=hr_label, x=Inf, hjust=1), position = position_dodge(width = 1), size=3)+
-    labs(x= "HR", y="Pollutant Model", col = "Exposure Model", shape="")
+    #geom_text(aes(label=hr_label, x=Inf, hjust=1), position = position_dodge(width = 1), size=3)+
+    theme(legend.position = "none") +
+    labs(x= "HR (95% CI)", y="", col = "Exposure Model", shape="")
   
   return(p)
 }
 
-# # fn returns a table of HRs for each TRAP
-# hr_table(dt, caption.) {
-#   dt %>%
-#   select(pollutant, Model=model, hr_label) %>%
-#   pivot_wider(names_from = "pollutant", values_from = "hr_label") %>%
-#   select(Model, contains("PNC"), everything()) %>%
-#   kable(caption = caption.) %>%
-#   kable_styling()
-# }
-
+#presentation
+# dt = main_hrs
+plot_hr3 <- function(dt) {
+  p <- dt %>%
+    ggplot(., aes(y=model, col=pollutant, #shape = significant, 
+                  x=hr, xmin=lower95, xmax=upper95,)) + 
+    facet_grid(rows = vars(pollutant),
+               #cols = vars(#outcome), 
+               #space="free", scales="free_y", 
+               switch = "both"
+               ) + 
+    geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
+    geom_pointrange(position = position_dodge(width = 1)) +
+    theme(legend.position = "none") +
+    #geom_text(aes(label=hr_label, x=Inf, hjust=1), position = position_dodge(width = 1), size=3)+
+    labs(x= "HR (95% CI)", y="")
+  
+  #p
+  
+  return(p)
+}
 ```
-
-# --> combine plots + table?
 
 ```{r}
 main_hrs <- hrs %>%
@@ -194,11 +316,36 @@ main_hrs <- hrs %>%
         # dont include SP or ST NO2
         grepl("2019 MM", exposure_model)) %>%
   mutate(
-    pollutant = gsub("\nNanoScan", "", pollutant)
+    pollutant = gsub("\nNanoScan", "", pollutant),
+    #pollutant = factor(pollutant, levels = pollutant_levels)
+    pollutant = factor(pollutant, levels = c("PNC (1000 pt/cm3)", levels(hrs$pollutant)))
   )
 
+#main models
+main_hrs %>%
+  filter(grepl("Bi-Pollutant", model)) %>%
+  #plot_hrs2()
+  ggplot(., aes(y=model, col=pollutant, #col=model,  
+                  x=hr, xmin=lower95, xmax=upper95,)) +
+  facet_grid(#rows = vars(model),
+             cols = vars(pollutant), #switch = "both"
+               ) +
+  geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
+  geom_pointrange(position = position_dodge(width = 1)) +
+  theme(legend.position = "none") +
+  scale_x_continuous(breaks = seq(0.8, 1.2, by=.1)
+    #breaks = c(.8, 1, 1.2)
+                     ) +
+  
+  labs(x= "HR (95% CI)", y="", col = "Exposure Model", shape="")
+ 
+ggsave(file.path(image_path, "presentation", "main_hrs.png"), width = 6, height = 2)
+
 # plots 
-plot_hrs2(main_hrs) 
+plot_hrs2(main_hrs) + facet_grid(~pollutant)
+
+ggsave(file.path(image_path, "presentation", "multi_pollutant_hrs.png"), width = 7, height = 2)
+
 
 #table
 main_hrs %>%
@@ -208,62 +355,222 @@ main_hrs %>%
   kable(caption = "Hazard ratios (95% CI) for the incidence of all-cause dementia by ten-year average pollutant exposure") %>%
   kable_styling()
 
+
+
+
 ```
 
 ## Other UFP instruments
 
+
 ```{r}
+# these factor levels are wrong
+# new_pollutant_levels <- gsub("PNC (1000 pt/cm3)\n", "", pollutant_levels, fixed = T) %>%
+#    gsub("(pt/cm3)", "", ., fixed = T) %>%
+#   gsub("\nOnroad", "P-TRAK Onroad 20-1,0000 nm", .)
+ufp_pollutant_levels <- c("NanoScan (10-420 nm), Primary", "P-TRAK (20-1,0000 nm)", "DiSCmini (10-700 nm)", 
+                      
+                      #NS bins
+                      "PNC\n10-100 nm (pt/cm3)", 
+                      "PNC\n10-13 nm (pt/cm3)",
+                      "PNC\n13-18 nm (pt/cm3)",
+                      "PNC\n18-24 nm (pt/cm3)" ,
+                      "PNC\n24-32 nm (pt/cm3)",
+                      "PNC\n32-42 nm (pt/cm3)",
+                      "PNC\n42-56 nm (pt/cm3)",
+                      "PNC\n56-75 nm (pt/cm3)",
+                      "PNC\n75-100 nm (pt/cm3)",
+                      "PNC\n100-133 nm (pt/cm3)",
+                      "PNC\n133-178 nm (pt/cm3)",
+                      
+                      #P-trak differences
+                      "PNC\n20-36 nm (pt/cm3)",
+                      "PNC\n36-1k nm (pt/cm3)",
+                      
+                      #other total UFP instruments
+                      "PNC (1000 pt/cm3)\nP-TRAK", "PNC (1000 pt/cm3)\nDiSCmini",
+                      
+                      #onroad PTRAK
+                      "PNC (1000 pt/cm3)\nOnroad",
+                      
+                      #size
+                      "Median Pt Size\nDiSCmini"
+                      )
+
+
+
 ufp_hrs <- hrs %>%
-  filter(grepl("Main", description),
-        grepl("NanoScan|DiSCmini|P-TRAK", pollutant),
-        grepl("Bi-Pollutant", model)) %>%
-  mutate(pollutant = gsub("PNC (1000 pt/cm3)\n", "", pollutant, fixed = T),
-         pollutant = relevel(factor(pollutant), ref = "NanoScan"))
+  filter(#grepl("Main", description),
+          grepl("Main|PNC|Particle", description),
+        grepl("NanoScan|DiSCmini|P-TRAK|PNC|Size", pollutant),
+        grepl("Bi-Pollutant", model),
+        
+        #don't plot since upper limit is high (~16) - b/c little variability?
+        !grepl("NS_154.0", pollutant_predictors)
+        ) %>%
+  mutate(pollutant = gsub("PNC (1000 pt/cm3)\n", "", pollutant, fixed = T) %>%
+   gsub("(pt/cm3)", "", ., fixed = T) %>%
+  gsub("Onroad", "P-TRAK Onroad 20-1,0000 nm", .),
+         
+         pollutant = ifelse(pollutant == "NanoScan", "NanoScan (10-420 nm), Primary",
+                            ifelse(pollutant == "P-TRAK", "P-TRAK (20-1,0000 nm)",
+                                   ifelse(pollutant == "Screened P-TRAK", "Screened P-TRAK (36-1,0000 nm)",
+                                          ifelse(pollutant == "DiSCmini", "DiSCmini (10-700 nm)",pollutant# NA
+                                                 )))),
+         pollutant = ifelse(grepl("PNC", pollutant) & grepl("20-36|36-1k", pollutant), gsub("PNC", "P-TRAK", pollutant),
+                            gsub("PNC", "NanoScan", pollutant)),
+        #pollutant = factor(pollutant, levels =new_pollutant_levels)
+         
+         
+         #pollutant = relevel(factor(pollutant), ref = "NanoScan")
+         ) #%>% arrange(pollutant)
+
+# unique(ufp_hrs$pollutant)
+
 
 # plots 
+print("plot doesn't include 154 bin b/c upper limit is high (~16)")
 ggplot(ufp_hrs, aes(y=pollutant, col=model, x=hr, xmin=lower95, xmax=upper95,)) + 
     facet_grid(cols = vars(outcome), space="free", scales="free_y", switch = "both") + 
     geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
     geom_pointrange(position = position_dodge(width = 1)) +
     geom_text(aes(label=hr_label, x=Inf, hjust=1), position = position_dodge(width = 1), size=3)+
-    labs(x= "HR", y="Pollutant Model", col = "Exposure Model", shape="")
+    labs(x= "HR", y="UFP Model", col = "Exposure Model", shape="")
 
 #table
 ufp_hrs %>%
-  select(pollutant, Model=model, hr_label) %>%
-  select(Pollutant = pollutant, 'HR (95% CI)' = hr_label) %>%
-  kable(caption = "Hazard ratios (95% CI) for the incidence of all-cause dementia by ten-year average PNC exposure. PNC exposure is from different instruments. Hazard ratios are from the primary Co-pollutant (+PM2.5) model.") %>%
+  #select(pollutant, Model=model, hr_label) %>%
+  select('UFP Model' = pollutant, 'HR (95% CI)' = hr_label) %>%
+  kable(caption = "Estimated hazard ratio (95% CI) for the incidence of all-cause dementia associated with an increase in ten-year average UFP (1,000 pt/cm3) exposure level, as determined by exposure prediction models that use different UFP instruments and particle size ranges.") %>%
   kable_styling()
+
+
+# for presentation
+ufp_hrs %>%
+  filter(
+    !(grepl("NanoScan", pollutant) & !grepl("Primary", pollutant)),
+    !grepl("Pt Size", pollutant),
+    !grepl("Onroad", pollutant),
+    ) %>% 
+  
+  mutate(
+    pollutant = case_when(
+      grepl("10-420 nm", pollutant) ~ "NanoScan, 10nm+ (Primary)",
+      grepl("10-700", pollutant) ~ "DiSCmini, 10+ nm",
+      grepl("20-1,0000", pollutant) & !grepl("Onroad", pollutant) ~ "P-TRAK, 20+ nm",
+      grepl("20-36 nm", pollutant) ~ "P-TRAK, 20-36 nm",
+      grepl("36-1k nm", pollutant) ~ "P-TRAK, 36+ nm",
+      grepl("Onroad 20-1,0000 nm", pollutant) ~ "P-TRAK, 20+ nm, onroad",
+      TRUE~pollutant
+      ),
+    pollutant =  factor(pollutant, levels=c("NanoScan, 10nm+ (Primary)",
+                                            "DiSCmini, 10+ nm",
+                                            "P-TRAK, 20+ nm",
+                                            "P-TRAK, 20+ nm, onroad",
+                                            "P-TRAK, 20-36 nm",
+                                            "P-TRAK, 36+ nm"
+                                            ))
+    ) %>%
+  
+  
+  ggplot(., aes(y=pollutant, #col=pollutant, 
+                x=hr, xmin=lower95, xmax=upper95,)) + 
+  geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
+  geom_pointrange(position = position_dodge(width = 1)) +
+  theme(legend.position = "none") +
+  labs(x= "HR (95% CI)", y="UFP Measure", col = "Exposure Model", shape="")
+
+ggsave(file.path(image_path, "presentation", "ufp_measures.png"), width = 5, height = 2.5)
 
 ```
 
 ## Sensitivity Analyses
 
+different no2 models 
+
 ```{r}
+no2_sensitivity <- hrs %>%
+  filter( 
+    grepl("NO2", pollutant),
+    pollutant_predictors == "NO2 + PM2.5",
+    grepl("Main", description)) %>% 
+  mutate(exposure_model = gsub(" \\+ 2019 ST", "", exposure_model),
+         exposure_model = gsub("MM", "Mobile Monitoring (Main Analysis)", exposure_model),
+         exposure_model = gsub("ST", "Spatiotemporal", exposure_model)) 
+
+no2_sensitivity %>%  
+  select(exposure_model, hr_label) %>%
+  kable(caption = "NO2 sensitivity analyses of the estimated hazard ratios (95% CI) for the incidence of all-cause dementia associated with an increase in ten-year average pollutant exposure level, as determined by different NO2 exposure models.", 
+        col.names = c("NO2 Exposure Model", "HR (95% CI)")
+        ) %>%
+  kable_styling()
+
+#presentation
+no2_sensitivity %>%
+  
+  ggplot(., aes(y=exposure_model, #col=pollutant, 
+                x=hr, xmin=lower95, xmax=upper95,)) + 
+  geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
+  geom_pointrange(position = position_dodge(width = 1)) +
+  theme(legend.position = "none") +
+  labs(x= "HR (95% CI)", y="NO2 Model", col = "Exposure Model", shape="")
+
+ggsave(file.path(image_path, "presentation", "no2_sensitivity.png"), width = 5, height = 2.5)
+
+  
+  
+```
+
+other sensitivity analyse 
+
+```{r}
+sensitivity_lvs <- c("Main Analysis", 
+                     "Extended Cohort (1994+)", "Restricted Cohort (2010+)",
+                     "Restricted Cohort (Pre 2019)",
+                     "Baseline Age Adjustment", "Calendar Time Axis & 2yr Age Adjustment", "No IPW")
+
 sensitivity_hrs <- hrs %>%
-  filter((grepl("Full Cohort|No IPW|Intake Age Adjustment|Time Axis", description) | 
+  filter((grepl("Restricted|No IPW|Baseline Age Adjustment|Time Axis", description) | 
             (grepl("Main", description) & grepl("Bi-Pollutant", model) & !grepl("DiSCmini|P-TRAK", pollutant))),
-         !grepl("PM2.5", pollutant)) %>% 
-  mutate(pollutant = gsub("\nNanoScan", "", pollutant)) 
+         !grepl("PM2.5", pollutant),
+         # drop NO2 sensitivity analyses
+         !(grepl("NO2", pollutant) & exposure_model %in% c("2019 ST", "ST + 2019 ST")),
+         #don't need to present this?
+         !grepl("(Pre 2019)", description)
+         ) %>% 
+  mutate(pollutant = gsub("\nNanoScan", "", pollutant),
+         pollutant = factor(pollutant, levels = c("PNC (1000 pt/cm3)", levels(hrs$pollutant))),
+         description = droplevels(description),
+         description = factor(description, levels = sensitivity_lvs)
+         ) 
 
 # plots 
-ggplot(sensitivity_hrs, aes(y=description, col=description, x=hr, xmin=lower95, xmax=upper95,)) + 
-    facet_grid(rows=vars(pollutant), cols = vars(outcome), space="free", scales="free_y", switch = "both") + 
+ggplot(sensitivity_hrs, aes(y=description, col=pollutant, x=hr, xmin=lower95, xmax=upper95,)) + 
+    facet_grid(cols=vars(pollutant), #cols = vars(outcome), 
+               space="free", scales="free_y", #switch = "both"
+               ) + 
     geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
     geom_pointrange(position = position_dodge(width = 1)) +
-    geom_text(aes(label=hr_label, x=Inf, hjust=1), position = position_dodge(width = 1), size=3)+
-    labs(x= "HR", y="Sensitivity Analysis", col = "Exposure Model", shape="")
+    #geom_text(aes(label=hr_label, x=Inf, hjust=1), position = position_dodge(width = 1), size=3)+
+  theme(legend.position = "none") +
+    labs(x= "HR (95% CI)", y="Sensitivity Analysis", col = "Exposure Model", shape="")
+
+ggsave(file.path(image_path, "presentation", "other_sensitivity.png"), width = 6, height = 3)
 
 sensitivity_hrs %>%
   select(description, pollutant,  hr_label) %>%
   pivot_wider(names_from = "pollutant", values_from = "hr_label") %>%
   select(description, contains(c("PNC", "BC", "NO2"))) %>%
-  kable(caption = "Sensitivity analyses of hazard ratios (95% CI) for the incidence of all-cause dementia by ten-year average pollutant exposure.") %>%
+  #mutate(description = factor(description, levels = sensitivity_lvs)) %>%
+  arrange(description) %>%
+  rename('Other Sensitivity Analysis'= description) %>%
+  kable(caption = "Other sensitivity analyses of the estimated hazard ratio (95% CI) for the incidence of all-cause dementia associated with an increase in ten-year average pollutant exposure level.") %>%
   kable_styling() %>% 
   add_footnote("*: p<0.05")
 
 ```
 
+ 
 
 ## Secondary Analyses
 
@@ -272,36 +579,130 @@ secondary_hrs <- hrs %>%
   filter(grepl("Subtype Outcomes", description) |
             grepl("Shorter Exposure", description) |
            (grepl("Main", description) & !grepl("DiSCmini|P-TRAK|PM2.5", pollutant) & grepl("Bi-Pollutant", model)),
-         !grepl("PM2.5", pollutant)) %>% 
+         !grepl("PM2.5", pollutant),
+         # drop NO2 sensitivity analyses
+         !(grepl("NO2", pollutant) & exposure_model %in% c("2019 ST", "ST + 2019 ST"))
+         ) %>% 
   mutate(pollutant = gsub("\nNanoScan", "", pollutant),
+          pollutant = factor(pollutant, levels = c("PNC (1000 pt/cm3)", levels(hrs$pollutant))),
          description = ifelse(grepl("Subtype", description), paste(outcome, "Outcome"),
                               ifelse(grepl("Exposure Period", description), paste(exposure_duration, "Yr Exposure Period"),
                                      as.character(description))),
-         description = relevel(factor(description), ref = "Main Models (2005+)"),
+         description = relevel(factor(description), ref = "Main Analysis"),
          exposure_duration = factor(exposure_duration, levels = c(1,5,10))
          ) 
 #secondary_hrs %>% arrange(pollutant) %>% select(pollutant, outcome, exposure_duration, description)
 
 # plot [same as above]
-ggplot(secondary_hrs, aes(y=description, col=outcome, x=hr, xmin=lower95, xmax=upper95,
-                          shape=exposure_duration
-                          )) + 
-    facet_grid(rows=vars(pollutant), #cols = vars(outcome), 
-               space="free", scales="free_y", switch = "both") + 
-    geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
-    geom_pointrange(position = position_dodge(width = 1)) +
-    geom_text(aes(label=hr_label, x=Inf, hjust=1), position = position_dodge(width = 1), size=3)+
-    labs(x= "HR", y="Secondary Analysis", col = "Outcome", shape="")
+ggplot(secondary_hrs, aes(y=description, col=pollutant, x=hr, xmin=lower95, xmax=upper95)) + 
+  facet_grid(cols=vars(pollutant), space="free", scales="free_y") + 
+  geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
+  geom_pointrange(position = position_dodge(width = 1)) +
+  theme(legend.position = "none") +
+  labs(x= "HR (95% CI)", y= "", #"Secondary Analysis", 
+       col = "Outcome", shape="")
+
+ggsave(file.path(image_path, "presentation", "secondary_analyses.png"), width = 6, height = 3)
+
 
 # table
 secondary_hrs %>%
   select(description, pollutant,  hr_label) %>%
   pivot_wider(names_from = "pollutant", values_from = "hr_label") %>%
   select(description, contains(c("PNC", "BC", "NO2"))) %>%
-  kable(caption = "Secondary analyses of hazard ratios (95% CI) for dementia incidence by rolling average pollutant exposure.") %>%
+    rename('Secondary Analysis'= description) %>%
+
+  kable(caption = "Secondary analyses of the estimated hazard ratio (95% CI) for the incidence of dementia subtype (AD or non-AD) associated with an increase in 1- or 5-year average pollutant exposure level.The main analysis is included for reference. It models all-cause dementia incidence using a 10-year average pollutant exposure level") %>%
   kable_styling()  
 
 
 ```
+
+
+# Exploratory - interaction models
+
+# --> add units 
+
+```{r}
+
+modification_hrs <- hrs_em %>%
+  mutate(
+    em= ifelse(grepl("not_var", covariate), "no", "yes"),
+         # description = gsub(" Interaction", "", description),
+         # description = gsub("_", " ", description),
+         # description = str_to_title(description),
+         # description = gsub("Race ", "Race, ", description),
+         # description = ifelse(grepl("apoe", description, T), "APOEe4", description),
+         covariate = gsub("_var|_not_var|MM_", "", covariate),
+    
+         group_variable = ifelse(grepl("male", description) & em=="yes", "Male",
+                               ifelse(grepl("male", description) & em=="no", "Female",
+                                      ifelse(grepl("race", description) & em=="yes", "White",
+                                             ifelse(grepl("race", description) & em=="no", "People of Color",
+                                                    ifelse(grepl("apoe", description) & em=="yes", "Carrier",
+                                                           ifelse(grepl("apoe", description) & em=="no", "Non-Carrier",
+                                                                  ifelse(grepl("degree", description) & em=="yes", "Higher Degree",
+                                                                         ifelse(grepl("degree", description) & em=="no", "Lower Degree",
+                                                                                ifelse(grepl("low_ndi", description) & em=="yes", "Lower NDI",
+                                                                                       ifelse(grepl("low_ndi", description) & em=="no", "Higher NDI", NA
+                                                                                       )))))))))
+                               ),
+    
+    
+    group_description = ifelse(grepl("male", description, ignore.case = T), "Sex",
+                               ifelse(grepl("race", description), "Race",
+                                      ifelse(grepl("apoe", description), "APOEe4",
+                                             ifelse(grepl("degree", description), "Educational Degree",
+                                                    ifelse(grepl("ndi", description), "Neighborhood Deprivation Index", NA))))),
+    ) %>%
+  select(group_description, group_variable, pollutant=covariate, hr_label, hr, lower95, upper95) %>%
+label_pollutants() %>%
+  mutate(pollutant = gsub(", NanoScan", "", pollutant),
+         #pollutant = factor(pollutant, levels = c("PNC (1000 pt/cm3)", levels(hrs$pollutant)))
+         ) 
+
+
+#plot
+modification_hrs %>%
+  filter(grepl("race|sex", group_description, ignore.case = T)) %>%
+  
+  ggplot(., aes(y=group_variable, col=pollutant, x=hr, xmin=lower95, xmax=upper95)) + 
+    facet_grid(rows=vars(group_description), cols = vars(pollutant), 
+               space="free", scales="free_y", #switch = "both"
+               ) + 
+    geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
+    geom_pointrange(position = position_dodge(width = 1)) +
+  theme(legend.position = "none")+
+    labs(x= "HR (95% CI)", y="Effect Modification", col = "Pollutant", shape="")
+
+ggsave(file.path(image_path, "presentation", "effect_modification1.png"), width = 5.5, height = 3)
+
+ modification_hrs %>%
+  filter(!grepl("race|sex", group_description, ignore.case = T)) %>%
+  
+  ggplot(., aes(y=group_variable, col=pollutant, x=hr, xmin=lower95, xmax=upper95)) + 
+    facet_grid(rows=vars(group_description), cols = vars(pollutant), 
+               space="free", scales="free_y", #switch = "both"
+               ) + 
+    geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
+    geom_pointrange(position = position_dodge(width = 1)) +
+  theme(legend.position = "none")+
+    labs(x= "HR (95% CI)", y="Effect Modification", col = "Pollutant", shape="")
+
+ggsave(file.path(image_path, "presentation", "effect_modification2.png"), width = 5.5, height = 7)
+
+
+
+
+# table
+modification_hrs %>%
+  select(-c("hr", "lower95", "upper95")) %>%
+  pivot_wider(names_from = c("pollutant"), values_from = "hr_label") %>%
+  rename('Effect Modifier' = group_description,
+         ' ' = group_variable) %>%
+  kable(caption = "Interaction models") %>%
+  kable_styling()
+```
+
 
 

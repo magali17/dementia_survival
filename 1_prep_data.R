@@ -24,7 +24,7 @@ output_data_path <- file.path("Data", "Output", "1_prep_data")
 if(!file.exists(output_data_path)) {dir.create(output_data_path)}
 
 image_path <- file.path("..", "manuscript", "images")
-first_exposure_year <- 2005
+first_exposure_year <- 2000 #2005
 save(first_exposure_year, file = file.path(output_data_path, "first_exposure_year.rda"))
 
 print_diagnostics <- FALSE
@@ -45,20 +45,18 @@ exclusion_table <- tibble(description = as.character(),
 # description. = "test"
 # notes. = "longer description"
 count_remaining_sample <- function(dt, description., notes.=NA) {
-  temp <- distinct(dt, study_id, exposure_year)
+  temp <- distinct(dt, study_id, exposure_year, age_end_exposure, age_start_exposure)
   
   exclusion_table <- add_row(exclusion_table,
                        description = description.,
                        persons = length(unique(temp$study_id)),
-                       person_years = nrow(temp),
-                       notes = notes.
-                       )
+                       #person_years = nrow(temp),
+                       person_years = sum(round(temp$age_end_exposure - temp$age_start_exposure, 2)),
+                       notes = notes.)
   
   exclusion_table <- mutate(exclusion_table,
                             persons_dropped = lag(persons) - persons,
-                            #persons_pct_dropped = round(persons_dropped/lag(persons), 2)*100,
-                            person_years_dropped = lag(person_years) - person_years,
-                            #person_years_pct_dropped = round(person_years_dropped/lag(person_years), 2)*100
+                            person_years_dropped = lag(person_years) - person_years
                             )
   
   return(exclusion_table)
@@ -66,8 +64,11 @@ count_remaining_sample <- function(dt, description., notes.=NA) {
 ######################################################################
 # LOAD DATA
 ######################################################################
-folder_date <- "20220623" #"20220610"
-dt_path <- file.path("Data", "Raw", folder_date, "issue_001.rda")
+folder_date <- "20230324"
+dt_path <- file.path("Data", "Raw", "Issue_14_for_release", folder_date, "issue_014.rda")
+
+# folder_date <- "20220623" #"20220610"
+# dt_path <- file.path("Data", "Raw", folder_date, "issue_001.rda")
 
 if(file.exists(dt_path)) {
   sur0 <- readRDS(dt_path)
@@ -76,13 +77,79 @@ if(file.exists(dt_path)) {
      saveRDS(sur0, dt_path)
    }
 
-exclusion_table <- count_remaining_sample(sur0, description. = "Full cohort")
+# exclusion_table <- count_remaining_sample(sur0, description. = "Full cohort")
+
+# admin_censor: If the exposure year is after last visit but before 2020 freeze or withdrawal or death
+#--> have to recode 'test' follow up time for admin_censor==1 to be year-12-31 if is.na(status_date), or status_date, or freeze_date if status=="alive" ....) ?
+
+# this is getting confusing - doing a simple approach for now & dropping all measures where admin_censor ==1
+######################################################################
+# TEST
+######################################################################
+freeze_date <-max(sur0$last_visit)
+saveRDS(freeze_date, file.path(output_data_path, "freeze_date.rda"))
+prior_2yrs <- freeze_date - 365*2 #ymd("2018-03-01")
+
+
+# sur0 %>% 
+#   filter(#study_id == last(study_id),
+#         #study_id == unique(study_id)[4],#2
+#          pollutant=="ufp_10_42") %>% 
+#   select(study_id, status, status_date, last_visit, admin_censor, exposure_year, age_at_exposure,pollutant,
+#          starts_with("exp_avg")) %>%
+#   
+#   filter(last_visit > prior_2yrs #& status== "alive"
+#          ) %>% #View()
+#   
+#   group_by(study_id) %>%
+#   summarize(admin_censored = sum(admin_censor==1),
+#             last_visit = unique(last_visit),
+#             years_added = paste(exposure_year[admin_censor==1], collapse = ", ") #Looks good-what I expected to see in this dataset
+#             ) %>%#   
+#   View()
+
+
+# sur0 %>%
+#   filter(pollutant==first(pollutant),
+# 
+#          exposure_year>2018
+# 
+#          ) %>%
+#   group_by(study_id) %>%
+#   summarize(admin_censored = sum(admin_censor)) %>%
+#   # mutate(admin_censored = sum(admin_censor==1)) %>%
+#   # filter(admin_censored==10) %>% View()
+# 
+#   ggplot(aes(x=admin_censored)) + geom_histogram()
+
+
+# test <- sur0 %>%
+#   filter(admin_censor==0 |
+#            # extra years added. these were the only people for whom we actually wanted extra exposure years (not the entire cohort)
+#            (last_visit > prior_2yrs & status== "alive")
+#            )
+# test %>% 
+#   filter(pollutant==first(pollutant)) %>%
+#   select(study_id, status, status_date, last_visit, admin_censor, exposure_year, age_at_exposure,pollutant,
+#        starts_with("exp_avg")) %>% 
+#   
+#   # group_by(study_id) %>% filter(sum(admin_censor)>0) %>%
+#   # View()
+#   
+#   # group_by(study_id) %>%
+#   # summarize(admin_censored = sum(admin_censor)) %>%
+#   #  
+#   # 
+#   # ggplot(aes(x=admin_censored)) + geom_histogram()
+#   
+
+
 
 ######################################################################
 # MM vs ST COVERAGE
 ######################################################################
 
-# --> WHY DOES MM sometimes have more coverage than ST?
+# WHY DOES MM sometimes have more coverage than ST? Amanda - ST model has "gaps" for times when we don't make predictions
 
 if(print_diagnostics == TRUE) {
   ggplot(data=sur0, aes(x=exp_wks_coverage01_yr_MM, y = exp_wks_coverage01_yr_ST)) + geom_point(alpha=0.1) + geom_abline(slope = 1, intercept = 0, color="yellow") + geom_vline(xintercept = 0.95, color="red")
@@ -95,29 +162,28 @@ if(print_diagnostics == TRUE) {
   prop.table(table(sur0$exp_wks_coverage10_yr_MM > sur0$exp_wks_coverage10_yr_ST))
 }
 
+ 
 ######################################################################
 # CLEAN VARIABLES
 ######################################################################
-sur <- sur0 %>%
-  #don't use non-final variables
-  select(-c(nindx)) %>%
-  filter(grepl("ufp|bc|no2|pm25", pollutant),
-         #drop ppl w/ only baseline visits
-         last_visit > intakedt #801 ppl dropped# last intakedt is thus 2017-08-01 (vs 2018-09-27)
-         ) %>%
+# add better bin labels
+##Bin models w/ all 309 sites
+bin_cw <- readRDS(file.path("Data", "Output", "all_data_campaign_refs.rda")) %>%
+  rename(pollutant = model_id) %>%
+  select(pollutant, variable)
+
+sur0.1 <- sur0 %>%
+  # only keep exposures up to the last visit (primary analysis)
+  filter(admin_censor==0)  %>%
+  left_join(bin_cw, by="pollutant") %>%
+  # clearer labels
+  mutate(pollutant = ifelse(!is.na(variable), variable, pollutant)) %>%
+  select(-variable)
+
+rm(sur0)
+
+sur0.1 <- sur0.1 %>%
   mutate(
-    #2 yr cal categories except for years 2018-2020
-    cal_2yr = floor(exposure_year/2)*2,
-    cal_2yr = factor(ifelse(cal_2yr==2020, 2018, cal_2yr)),
-    # Unless someone was suspected of X and was evaluated for it, X will be blank. ‘0’ is a confirmation 'no' while blank is a presumed 'no'
-    corrected_anydementia = ifelse(is.na(corrected_anydementia), 0, corrected_anydementia),
-    corrected_dsmivdx = ifelse(is.na(corrected_dsmivdx), 0, corrected_dsmivdx),
-    vad_dementia = ifelse(corrected_dsmivdx==2, 1, 0),
-    mixed_dementia = ifelse(corrected_dsmivdx==5, 1, 0),
-    other_dementia = ifelse(corrected_dsmivdx %in% c(3,4,6), 1, 0),
-    non_ad_dementia = ifelse(corrected_dsmivdx %in% c(2:6), 1, 0),
-    final_nindx = ifelse(is.na(final_nindx), 0, final_nindx),
-    #Time-varying covariates. Could also use age_at_exposure, although it will be less accurate
     ##starting age is age on Jan 1st of a given year if participant was enrolled, or on intake date, whichever came later
     age_start_exposure = ifelse(year(intakedt) == exposure_year, 
                                 as.numeric(intakedt-birthdt)/365,
@@ -126,13 +192,42 @@ sur <- sur0 %>%
     age_end_exposure = ifelse(format(last_visit, "%Y") == exposure_year,
                               as.numeric(last_visit - birthdt)/365,
                               as.numeric(as.Date(paste0(exposure_year, "-12-31")) - birthdt)/365),
+  )
+
+exclusion_table <- count_remaining_sample(sur0.1, description. = "Full cohort")
+
+# checking nses_z_cx - why do 193 participants have NAs?
+# distinct(sur0.1, study_id, nses_z_cx, exp_wks_coverage10_yr_MM) %>% mutate(n = sum(is.na(nses_z_cx))) %>% View()
+
+sur <- sur0.1 %>%
+  #don't use non-final variables
+  select(-c(nindx)) %>%
+  filter(#grepl("ufp|bc|no2|pm25", pollutant),
+         #drop ppl w/ only baseline visits
+         last_visit > intakedt) %>%
+  mutate(
+    #2 yr cal categories
+    #cal_2yr = ceiling(exposure_year/2)*2,
+    
+    #similar to Rachel 
+    cal_2yr = floor(exposure_year/2)*2, 
+    cal_2yr = factor(ifelse(cal_2yr==2020, 2018, cal_2yr)),
+    
+    # Unless someone was suspected of X and was evaluated for it, X will be blank. ‘0’ is a confirmation 'no' while blank is a presumed 'no'
+    corrected_anydementia = ifelse(is.na(corrected_anydementia), 0, corrected_anydementia),
+    corrected_dsmivdx = ifelse(is.na(corrected_dsmivdx), 0, corrected_dsmivdx),
+    vad_dementia = ifelse(corrected_dsmivdx==2, 1, 0),
+    mixed_dementia = ifelse(corrected_dsmivdx==5, 1, 0),
+    other_dementia = ifelse(corrected_dsmivdx %in% c(3,4,6), 1, 0),
+    non_ad_dementia = ifelse(corrected_dsmivdx %in% c(2:6), 1, 0),
+    final_nindx = ifelse(is.na(final_nindx), 0, final_nindx),
     ### may need to change age_last_visit to age_act for sensitivity analyses
     #dementia_now = ifelse(age_end_exposure < age_last_visit, 0, anydementia),
     ad_nincds = ifelse(final_nindx %in% c(1,2), 1, 0),
-    #ad_now = ifelse(age_end_exposure < age_last_visit, 0, ad_nincds),
-    income_cat = ifelse(tr_med_inc_hshld < 35000, 1,  
+    # replacing nses_z_cx with this; keeping to check stuff
+    income_cat = ifelse(tr_med_inc_hshld < 35000, 1,
                         ifelse(tr_med_inc_hshld >= 35000 & tr_med_inc_hshld < 50000, 2,
-                               ifelse(tr_med_inc_hshld >= 50000 & tr_med_inc_hshld < 75000, 3, 4))),  
+                               ifelse(tr_med_inc_hshld >= 50000 & tr_med_inc_hshld < 75000, 3, 4))),
     race_white = ifelse(race == 1, 1, 0),
     # --> should 9 be a 6 instead? but would change Rachel's models
     # make unknown degree=9 "none" 
@@ -156,6 +251,8 @@ sur <- sur0 %>%
 # update remaining data counts
 exclusion_table <- count_remaining_sample(sur, description. = "1+ follow-up visits")
 
+rm(sur0.1)
+
 # save semi-raw dataset with group categories used in analysis later (e.g., race, ad diagnosis)
 saveRDS(sur, file.path("Data", "Output", "sur0_redefined_categories.rda"))
 
@@ -176,7 +273,7 @@ missing <- sur_person %>%
   filter(prop_missing >0) %>%
   arrange(-prop_missing) 
 
-S(missing, file.path("Data", "Output", "missing_table.rda"))
+saveRDS(missing, file.path("Data", "Output", "missing_table.rda"))
 
 # drop columns with too much missingness, defined as more than apoe (12%)
 apoe_missing <- missing$prop_missing[missing$covariate=="apoe"] #0.1220489
@@ -214,7 +311,7 @@ missing_vars_imputed <- apply(sur_person[missing_vars], 2, impute_value) %>%
   as.data.frame()
  
 sur_person <- cbind(select(sur_person, -missing_vars), missing_vars_imputed )
-sur <- left_join(select(sur, -missing_vars), cbind(study_id=sur_person$study_id, missing_vars_imputed) )
+sur <- left_join(select(sur, -all_of(missing_vars)), cbind(study_id=sur_person$study_id, missing_vars_imputed) )
 
 # variables w/o missingness (for IPW later)
 still_missing <- sur_person %>%
@@ -254,7 +351,6 @@ if(print_diagnostics == TRUE) {
 # fn uses model.matrix and then selects overall predictors
 lasso_results <- lasso_fn(dt = apoe, x_names = names(apoe)[2:(ncol(apoe)-1)], y_name = "apoe_available", family. = "binomial")#, lambda. = 0.01)
                            
-
 apoe_missing_cov <- lasso_results$results$cov
 
 # # model.matrix creates dummy variables like those selected from lasso
@@ -310,35 +406,100 @@ sur_person <- left_join(sur_person, apoe_wts) %>% ungroup() %>%
 sur <- add_factor_refs(sur)
 # don't need this for sur_person b/c this is just for descriptives 
 
+#TEMP before dropping poor coverage
+saveRDS(sur, file.path("Data", "Output", "sur_TEMP.rda"))
+
 ######################################################################
 # COVERAGE VARIABLE
 ######################################################################
-coverage_threshold <- 0.95
+# test0 <- readRDS(file.path("Data", "Output", "sur_TEMP.rda"))
+# 
+# # # TEST
+# test <- test0 %>%
+#   filter(pollutant=="pm25",
+#          #study_id ==first(study_id)
+#          #exposure_year < 1998
+#          ) %>%
+#   select(study_id, exposure_year, exp_avg10_yr_ST, exp_wks_coverage10_yr_ST) #%>% View()
+#    
+# 
+# # sur %>%
+# #   filter(pollutant=="pm25") %>%
+# test %>%
+#   group_by(exposure_year) %>%
+#   summarize(
+#     min = min(exp_wks_coverage10_yr_ST, na.rm = T),
+#     mean = mean(exp_wks_coverage10_yr_ST, na.rm = T),
+#     max = max(exp_wks_coverage10_yr_ST, na.rm = T),
+#   )
+# 
+# 
+# # --> MM exposure coverage goes down in 1998 b/c MM only goes back to 1988?
+# sur %>% 
+#   drop_na(exp_wks_coverage10_yr_MM) %>%
+#   filter(pollutant=="pm25") %>% 
+#   ggplot(aes(x=exposure_year, y=exp_wks_coverage10_yr_MM, col=pollutant)) + 
+#   geom_point(alpha=0.2) + 
+#   geom_smooth()
+# 
+# test0 %>% 
+#   #drop_na(exp_wks_coverage10_yr_MM) %>%
+#   filter(pollutant=="pm25") %>%
+#   
+#   select(study_id, exposure_year, exp_avg10_yr_ST, exp_wks_coverage10_yr_ST) %>%# View()
+#   
+#   group_by(exposure_year) %>% 
+#   summarize(
+#     min = min(exp_wks_coverage10_yr_ST, na.rm = T),
+#     mean = mean(exp_wks_coverage10_yr_ST, na.rm = T), 
+#     max=max(exp_wks_coverage10_yr_ST, na.rm = T))
+# 
+# test0 %>%
+#   #drop_na(exp_wks_coverage10_yr_MM) %>%
+#   filter(pollutant=="pm25", exposure_year==1994) %>%
+#     select(study_id, exposure_year, exp_avg10_yr_ST, exp_wks_coverage10_yr_ST) %>% View()
+
+########################################
+# setting this lower b/c MM coverage starts falling in 1997 & before; max is ~0.6 in 1994 since "first" MM year is 1988?
+
+# upated 5/5/2023
+coverage_threshold <- 0.5 #0.95
+
+# test good_ids w
+main_analysis_id <- sur %>%
+  filter(exp_wks_coverage10_yr_MM >=coverage_threshold) %>% 
+  #keep same ids & years across other analyses
+  distinct(study_id, exposure_year) 
+
+sur <- left_join(main_analysis_id, sur)
+
+#length(unique(test$study_id))
+
 
 # drop person-years if below the coverage_threshold
 # since ST predictions will only be used as sensitivity analyses to see if our findings are similar, we want to make sure the person-years used are the same as MM
 # thus, we will drop ST predictions if MM predictions are also dropped due to low covarege in the MM region
-sur <- sur %>%
-  # modify MM, ST, SP predictions based on MM coverage since these are sensitivity analyses
-  mutate_at(vars(starts_with("exp_avg10_yr_")), ~ifelse(exp_wks_coverage10_yr_MM < coverage_threshold, NA, .)) %>%
-  mutate_at(vars(starts_with("exp_avg05_yr_")), ~ifelse(exp_wks_coverage05_yr_MM < coverage_threshold, NA, .)) %>%
-  mutate_at(vars(starts_with("exp_avg01_yr_")), ~ifelse(exp_wks_coverage01_yr_MM < coverage_threshold, NA, .)) %>%
-  # make all coverage values NA if there are NA predictions, using MM since this is the same for ST and SP
-  mutate_at(vars(starts_with("exp_wks_coverage10_yr_")), ~ifelse(is.na(exp_avg10_yr_MM), NA, .)) %>%
-  mutate_at(vars(starts_with("exp_wks_coverage05_yr_")), ~ifelse(is.na(exp_avg05_yr_MM), NA, .)) %>%
-  mutate_at(vars(starts_with("exp_wks_coverage01_yr_")), ~ifelse(is.na(exp_avg01_yr_MM), NA, .)) %>%
-  
-  mutate_at(vars(starts_with("exact_coverage10_yr_")), ~ifelse(is.na(exp_avg10_yr_MM), NA, .)) %>%
-  mutate_at(vars(starts_with("exact_coverage05_yr_")), ~ifelse(is.na(exp_avg05_yr_MM), NA, .)) %>%
-  mutate_at(vars(starts_with("exact_coverage01_yr_")), ~ifelse(is.na(exp_avg01_yr_MM), NA, .)) %>%
-  
-  mutate_at(vars(starts_with("imputed_coverage10_yr_")), ~ifelse(is.na(exp_avg10_yr_MM), NA, .)) %>%
-  mutate_at(vars(starts_with("imputed_coverage05_yr_")), ~ifelse(is.na(exp_avg05_yr_MM), NA, .)) %>%
-  mutate_at(vars(starts_with("imputed_coverage01_yr_")), ~ifelse(is.na(exp_avg01_yr_MM), NA, .)) %>%
-  
-  mutate_at(vars(starts_with("imp_qual10_yr_")), ~ifelse(is.na(exp_avg10_yr_MM), NA, .)) %>%
-  mutate_at(vars(starts_with("imp_qual05_yr_")), ~ifelse(is.na(exp_avg05_yr_MM), NA, .)) %>%
-  mutate_at(vars(starts_with("imp_qual01_yr_")), ~ifelse(is.na(exp_avg01_yr_MM), NA, .)) 
+# sur <- sur %>%
+#   # modify MM, ST, SP predictions based on MM coverage since these are sensitivity analyses
+#   mutate_at(vars(starts_with("exp_avg10_yr_")), ~ifelse(exp_wks_coverage10_yr_MM < coverage_threshold, NA, .)) %>%
+#   mutate_at(vars(starts_with("exp_avg05_yr_")), ~ifelse(exp_wks_coverage05_yr_MM < coverage_threshold, NA, .)) %>%
+#   mutate_at(vars(starts_with("exp_avg01_yr_")), ~ifelse(exp_wks_coverage01_yr_MM < coverage_threshold, NA, .)) %>%
+#   # make all coverage values NA if there are NA predictions, using MM since this is the same for ST and SP
+#   mutate_at(vars(starts_with("exp_wks_coverage10_yr_")), ~ifelse(is.na(exp_avg10_yr_MM), NA, .)) %>%
+#   mutate_at(vars(starts_with("exp_wks_coverage05_yr_")), ~ifelse(is.na(exp_avg05_yr_MM), NA, .)) %>%
+#   mutate_at(vars(starts_with("exp_wks_coverage01_yr_")), ~ifelse(is.na(exp_avg01_yr_MM), NA, .)) %>%
+#   
+#   mutate_at(vars(starts_with("exact_coverage10_yr_")), ~ifelse(is.na(exp_avg10_yr_MM), NA, .)) %>%
+#   mutate_at(vars(starts_with("exact_coverage05_yr_")), ~ifelse(is.na(exp_avg05_yr_MM), NA, .)) %>%
+#   mutate_at(vars(starts_with("exact_coverage01_yr_")), ~ifelse(is.na(exp_avg01_yr_MM), NA, .)) %>%
+#   
+#   mutate_at(vars(starts_with("imputed_coverage10_yr_")), ~ifelse(is.na(exp_avg10_yr_MM), NA, .)) %>%
+#   mutate_at(vars(starts_with("imputed_coverage05_yr_")), ~ifelse(is.na(exp_avg05_yr_MM), NA, .)) %>%
+#   mutate_at(vars(starts_with("imputed_coverage01_yr_")), ~ifelse(is.na(exp_avg01_yr_MM), NA, .)) %>%
+#   
+#   mutate_at(vars(starts_with("imp_qual10_yr_")), ~ifelse(is.na(exp_avg10_yr_MM), NA, .)) %>%
+#   mutate_at(vars(starts_with("imp_qual05_yr_")), ~ifelse(is.na(exp_avg05_yr_MM), NA, .)) %>%
+#   mutate_at(vars(starts_with("imp_qual01_yr_")), ~ifelse(is.na(exp_avg01_yr_MM), NA, .)) 
  
 # update remaining data counts. this needs to be done below after reformatting, otherwise the same "counts" are reported
 #exclusion_table <- count_remaining_sample(sur, description. = "drop person-years if below the coverage threshold")
@@ -369,7 +530,8 @@ sur2 <- sur %>%
          age_at_exposure, age_start_exposure, age_end_exposure, exposure_year, 
          pollutant, starts_with("exp_avg10_yr_"), starts_with("exp_avg05_yr_"), starts_with("exp_avg01_yr_"),
          exp_wks_coverage10_yr_MM, exact_coverage10_yr_MM, imputed_coverage10_yr_MM, imp_qual10_yr_MM,
-    male, hispanic, race, race_white, apoe, bmi4, degree, income_cat, cal_2yr, model_wt
+    male, hispanic, race, race_white, apoe, bmi4, degree, nses_z_cx, income_cat, 
+    cal_2yr, model_wt
     ) %>%
   pivot_longer(starts_with("exp_avg"), names_to = "exp_avg0", values_to = "pollutant_prediction") %>%
   mutate(
@@ -378,13 +540,14 @@ sur2 <- sur %>%
   ) %>%
   select(study_id, age_start_exposure, age_start_exposure, age_end_exposure, exposure_year, pollutant, exp_avg0, exposure_duration, model, pollutant_prediction, contains("coverage|imp_"), everything())
 
-# full dataset that still has rows w/ missing/unused exposure values
-initial_py <- sur2 %>%
-  group_by(pollutant, exp_avg0) %>%
-  summarize(
-    initial_persons = length(unique(study_id[!all(is.na(pollutant_prediction))])),
-    initial_person_years = length(pollutant_prediction[!all(is.na(pollutant_prediction))])) %>% 
- filter(initial_persons>0)
+# # full dataset that still has rows w/ missing/unused exposure values
+# initial_py <- sur2 %>%
+#   group_by(pollutant, exp_avg0) %>%
+#   summarize(
+#     initial_persons = length(unique(study_id[!all(is.na(pollutant_prediction))])),
+#     initial_person_years = length(pollutant_prediction[!all(is.na(pollutant_prediction))])) %>% 
+#  filter(initial_persons>0) %>%
+#   ungroup()
 
 # drop person-years without predictions after reformatting 
 sur2 <- sur2 %>% drop_na(pollutant_prediction) 
@@ -396,6 +559,23 @@ exclusion_table <- sur2 %>%
 # data with all cohort years, w/ and w/o APOE
 saveRDS(sur2, file.path("Data", "Output", "sur_full_cohort.rda"))
 
+
+
+# # #Test #still have data starting 1994
+# sur2 %>%
+#   filter(#exposure_year==1994,
+#          #study_id== 1003, #first(study_id)
+#          pollutant == "pm25",
+#          exposure_duration==10,
+#          ) %>% #View() #distinct(study_id) %>% pull()
+#   mutate(exposure_year = as.factor(exposure_year)) %>%
+# 
+#   ggplot(aes(x=exposure_year, y=pollutant_prediction, col=model)) +
+#   geom_boxplot() #+ geom_smooth()
+
+  
+
+
 ######################################################################
 # REDUCED ANALYSIS COHORT 
 ######################################################################
@@ -403,15 +583,18 @@ saveRDS(sur2, file.path("Data", "Output", "sur_full_cohort.rda"))
 sur3 <- filter(sur2, !is.na(apoe))
 # remaining data
 exclusion_table <- sur3 %>%
-  filter(model=="MM", exposure_duration==10) %>%
+  filter(model=="MM", exposure_duration==10, 
+         
+         #pollutant==first(pollutant)
+         ) %>%
   count_remaining_sample(description. = "APOE available")
 
-# 2005+ cohort 
-sur3 <- filter(sur3, exposure_year >= first_exposure_year)
-# remaining data
-exclusion_table <- sur3 %>%
-  filter(model=="MM", exposure_duration==10) %>%
-  count_remaining_sample(description. = "2005+")
+# # cohort from more recent years
+# sur3 <- filter(sur3, exposure_year >= first_exposure_year)
+# # remaining data
+# exclusion_table <- sur3 %>%
+#   filter(model=="MM", exposure_duration==10) %>%
+#   count_remaining_sample(description. = paste0(first_exposure_year, "+"))
 
 ## counts for 2010+
 exclusion_table <- filter(sur3, exposure_year >= 2010) %>%
@@ -424,26 +607,44 @@ exclusion_table <- filter(sur3, exposure_year >= 2010) %>%
 
 #complete_fu_yrs <- sur2 %>%
 complete_fu_yrs <- sur3 %>%
-  filter(pollutant == first(pollutant),
-         model == first(model),
-         exposure_duration == first(exposure_duration)
-  ) %>% 
+  filter(pollutant == "no2", #first(pollutant),
+         model=="MM", 
+         exposure_duration==10) %>%#  dim()
   group_by(study_id) %>%
-  mutate(follow_up_years = n()) %>% 
-  distinct(study_id, follow_up_years)  %>%
+  mutate(#follow_up_years = n(),
+         follow_up_years = sum(round(age_end_exposure-age_start_exposure, 2)),
+         corrected_anydementia = sum(dementia_now),
+         ad_nincds = sum(ad_now),
+         vad_dementia = sum(vad_now),
+         mixed_dementia = sum(mixed_now),
+         other_dementia = sum(other_now),
+         non_ad_dementia = sum(non_ad_now)
+         ) %>% 
+  distinct(study_id, follow_up_years, 
+           corrected_anydementia,ad_nincds, vad_dementia, mixed_dementia, other_dementia, non_ad_dementia
+           )  %>%
   ungroup()
 
-# left join to complete_fu_yrs to only keep people remaining
-sur_person <- left_join(complete_fu_yrs, sur_person)
+ 
+new_sur_person <- sur3 %>%
+  filter(model=="MM", exposure_duration==10) %>%
+  distinct(study_id, model_wt, #corrected_anydementia, corrected_dsmivdx,  
+           male,race_white, degree, nses_z_cx, 
+           income_cat,  #don't include here??
+           apoe, bmi4)
 
-# summary(apoe_wts$model_wt)
+# left join to complete_fu_yrs to only keep people remaining
+sur_person <- left_join(complete_fu_yrs, 
+                        new_sur_person)
+
+# table(sur_person$corrected_anydementia) # 731
 
 ######################################################################
 # SAVE DATA
 ######################################################################
 # data for primary analysis
 saveRDS(sur3, file.path("Data", "Output", "sur.rda"))
-#saveRDS(sur, file.path("Data", "Output", "sur_all_data.rda"))
 saveRDS(sur_person, file.path("Data", "Output", "sur_person.rda"))
 saveRDS(exclusion_table, file.path("Data", "Output", "exclusion_table.rda"))
 
+message("done with 1_prep_data.R")
