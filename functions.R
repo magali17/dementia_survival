@@ -92,8 +92,8 @@ summary_table <- function(dt, var) {
     summarize(
       N = length(var),
       Min = min(var),
-      #Mean = mean(var),
       Q25 = quantile(var, 0.25),
+      Mean = mean(var),
       Median = median(var),
       Q75 = quantile(var, 0.75),
       #SD = sd(var),
@@ -202,30 +202,81 @@ label_pollutants <- function(dt) {
   return(dt)
 }
 
+######################################################################
+# NEW
 
-
-# --> test, use GSUB instead
 label_pollutants2 <- function(dt) {
   dt <- dt %>%
-    mutate(pollutant = case_when(
-      pollutant == "ufp_10_42" ~ "PNC (pt/cm3), NanoScan",
-      pollutant == "ufp_20_1k" ~ "PNC (pt/cm3), P-TRAK",
-      pollutant == "ufp_36_1k" ~ "PNC (pt/cm3), Screened P-TRAK",
-      pollutant == "ufp_10_70" ~ "PNC (pt/cm3), DiSCmini",
+    mutate(instrument = case_when(
+      grepl("ufp_10_42|ns_", pollutant) ~ "NanoScan",
+      grepl("ufp_20_1k|pnc_onrd|pnc_20_36|ufp_36_1k",pollutant) ~ "P-TRAK",
+      grepl("ufp_10_70|pmdisc_sz", pollutant) ~ "DiSCmini",
+      
+      # grepl("no2", pollutant) & grepl("SP", model) ~ "2019 ST",
+      # grepl("no2", pollutant) & grepl("ST", model) ~ "ST",
+      TRUE ~ " "),
+      
+      instrument = factor(instrument, levels=c("NanoScan", "P-TRAK", "DiSCmini", " ")),
+
+      pt_range = case_when(
+        pollutant == "ufp_10_42" ~"10-420 nm\n(Primary Analysis)",  #"10-420 nm", 
+        pollutant == "ufp_20_1k" ~ "20-1,000 nm", 
+        pollutant == "pnc_onrd" ~ "20-1,000 nm, Onroad",
+        pollutant == "ufp_10_70" ~ "10-700 nm",
+        
+        pollutant=="ns_10_100" ~ "10-100 nm",
+
+        pollutant=="ns_11.5" ~ "10-13 nm",
+        pollutant=="ns_15.4" ~ "13-18 nm",
+        pollutant=="ns_20.5" ~ "18-24 nm",
+        pollutant=="ns_27.4" ~ "24-32 nm",
+        pollutant=="ns_36.5" ~ "32-42 nm",
+        pollutant=="ns_48.7" ~ "42-56 nm",
+        pollutant=="ns_64.9" ~ "56-75 nm",
+        pollutant=="ns_86.6" ~ "75-100 nm",
+        pollutant=="ns_115.5" ~ "100-133 nm",
+        pollutant=="ns_154.0" ~ "133-178 nm",
+        
+        pollutant=="pnc_20_36" ~ "20-36 nm", 
+        pollutant=="ufp_36_1k" ~ "36-1,000 nm", 
+      
+        #pollutant == "pmdisc_sz" ~ "Mean Particle", 
+        
+        TRUE~ " "),
+    pt_range = factor(pt_range, levels=c("10-420 nm", "10-420 nm\n(Primary Analysis)",
+                                         "20-1,000 nm",
+                                         "20-1,000 nm, Onroad",
+                                         "10-700 nm",
+                                         "10-100 nm",
+                                         "10-13 nm",
+                                         "13-18 nm",
+                                         "18-24 nm",
+                                         "24-32 nm",
+                                         "32-42 nm",
+                                         "42-56 nm",
+                                         "56-75 nm",
+                                         "75-100 nm",
+                                         "100-133 nm",
+                                         "133-178 nm",
+                                         
+                                         "20-36 nm", 
+                                         "36-1,000 nm", " ")),
+    
+    total_pnc = case_when(
+      pollutant %in% c("ufp_10_42", "ufp_20_1k", "ufp_10_70", "pnc_onrd", "ns_10_100") ~ "Total PNC (pt/cm3)",
+      grepl("ns_|ufp_36|pnc_20_36", pollutant) ~ "Size-Specific PNC (pt/cm3)",
+      pollutant== "pmdisc_sz" ~ "Mean Particle Size (nm)",
+      TRUE ~ " "),
+    total_pnc = factor(total_pnc, levels=c("Total PNC (pt/cm3)", "Size-Specific PNC (pt/cm3)", "Mean Particle Size (nm)", " ")),
+    
+    pollutant = case_when(
       pollutant == "bc" ~ "BC (ng/m3)",
       pollutant == "no2" ~ "NO2 (ppb)",
       pollutant == "pm25" ~ "PM2.5 (ug/m3)",
-      pollutant == "co2" ~ "CO2 (ppm)"
-    ),
-    pollutant = factor(pollutant, levels = c("PNC (pt/cm3), NanoScan",
-                                             "PNC (pt/cm3), P-TRAK",
-                                             "PNC (pt/cm3), Screened P-TRAK",
-                                             "PNC (pt/cm3), DiSCmini",
-                                             "BC (ng/m3)",
-                                             "NO2 (ppb)",
-                                             "PM2.5 (ug/m3)",
-                                             "CO2 (ppm)"))
-    )
+      #pollutant == "co2" ~ "CO2 (ppm)",
+      TRUE ~ "UFP"),
+    pollutant = factor(pollutant, levels = c("UFP", "BC (ng/m3)", "NO2 (ppb)", "PM2.5 (ug/m3)")))
+     
   return(dt)
 }
 

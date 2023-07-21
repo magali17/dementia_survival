@@ -274,6 +274,7 @@ missing <- sur_person %>%
   arrange(-prop_missing) 
 
 saveRDS(missing, file.path("Data", "Output", "missing_table.rda"))
+write.csv(missing, file.path("Data", "Output", "missing_table.csv"), row.names = F)
 
 # drop columns with too much missingness, defined as more than apoe (12%)
 apoe_missing <- missing$prop_missing[missing$covariate=="apoe"] #0.1220489
@@ -474,7 +475,6 @@ main_analysis_id <- sur %>%
 sur <- left_join(main_analysis_id, sur)
 
 #length(unique(test$study_id))
-
 
 # drop person-years if below the coverage_threshold
 # since ST predictions will only be used as sensitivity analyses to see if our findings are similar, we want to make sure the person-years used are the same as MM

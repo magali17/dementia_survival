@@ -77,7 +77,10 @@ sur <- sur0 %>%
 sur_w <- sur %>%
   select(-exp_avg0) %>%
   pivot_wider(names_from = c(model, pollutant), values_from = pollutant_prediction) 
-save(sur_w, file = file.path("Data", "Output", "sur_w.rda"))
+
+# 7/21/23: upated this b/c was having issues loading in Rmd
+#save(sur_w, file = file.path("Data", "Output", "sur_w.rda"))
+saveRDS(sur_w, file = file.path("Data", "Output", "sur_w.rda"))
 
 
 #outcomes <- str_subset(names(sur_w), "_now$" )
@@ -153,8 +156,8 @@ all_ap_models <- c(
 run_cox <- function(dt, 
                     start_time = "age_start_exposure", end_time = "age_end_exposure", event_indicator, 
                     pollutant_predictors, 
-                    other_predictors = c("cal_2yr", "degree", "nses_z_cx", "male", "race_white"), #c("cal_2yr", "degree", "nses_z_cx"),
-                    stratification = c("apoe") #c("apoe", "male", "race_white")
+                    other_predictors = c("cal_2yr", "degree", "nses_z_cx", "male", "race_white"), 
+                    stratification = c("apoe") 
                     ) {
   
   model_description <- paste(first(dt$exposure_duration), "yr", paste(pollutant_predictors, collapse="+"))
@@ -170,18 +173,15 @@ run_cox <- function(dt,
   
   predictors <- c(pollutant_predictors, other_predictors)
   cox_model <- coxph(as.formula(paste("surv_object ~" ,paste(predictors, collapse = "+"), 
-                                      "+", strata_predictors
-                                      #"+ strata(apoe) + strata(male) + strata(race_white)"
-                                      )), 
+                                      "+", strata_predictors)), 
                      data=dt,
-                     cluster = study_id, #robust = T,
+                     cluster = study_id, 
                      weights = model_wt) 
   print(cox_model)
   
   cox_model <- cox_model %>%
     summary()
   
-  # --> this uses robust SE to calculate 95% conf int, right? 
   result <- cox_model$conf.int %>% 
     as.data.frame() %>%
     rownames_to_column(var = "covariate") %>%
@@ -217,7 +217,8 @@ run_cox_many_times <- function(dt, pollutant_predictors = basic_ap_models, outco
   return(hr_results)
   }
 
-save(run_cox, run_cox_many_times, file = file.path("Data","Output", "cox_model_fns.rda"))
+#save(run_cox, run_cox_many_times, file = file.path("Data","Output", "cox_model_fns.rda"))
+save(run_cox, run_cox_many_times, file = file.path("Data","Output", "cox_model_fns.RData"))
 
 ######################################################################
 # MODELS
@@ -259,7 +260,7 @@ hrs_2010 <- sur_w %>%
 
 # drop last 2 years w/ administrative censoring - incidence is artificially high b/c person w/o visits for 
 # that particular year (~50%?) are not included in the denominator
-start_of_bad_yrs <- 2019 
+start_of_bad_yrs <- 2018 #2019 # 2019 is basically only ~1 yr since freeze happens in Mar 2020; also, 2018+ is binned together in models
 
 hrs_drop_last_2yr <- sur_w %>%
   filter(exposure_year < start_of_bad_yrs)  %>%

@@ -36,14 +36,24 @@ image_path <- file.path("..", "manuscript", "images")
 # Load files 
 source("functions.R")
 # analysis cohort
-sur <- readRDS(file.path("Data", "Output", "sur.rda")) %>%
+sur0 <- readRDS(file.path("Data", "Output", "sur.rda")) %>%
   filter(exposure_duration==10, model== "MM") %>%
-  distinct(study_id, exposure_year, age_start_exposure, age_end_exposure, corrected_anydementia, dementia_now, male,race_white, degree, income_cat, apoe, bmi4) %>%
-   
-  
+  distinct(study_id, exposure_year, age_start_exposure, age_end_exposure, corrected_anydementia, dementia_now, male,race_white, degree, #income_cat, 
+           apoe, #bmi4,
+           nses_z_cx,
+           pollutant, pollutant_prediction
+           ) %>%
+  filter(pollutant %in% c("ufp_10_42", "bc", "no2")) %>%
+  pivot_wider(names_from = pollutant, values_from = pollutant_prediction)
+
+sur <- sur0 %>%
   mutate(
     follow_up_years = round(age_end_exposure - age_start_exposure, 2),
-    year_group = cut(exposure_year, breaks = seq(2005,2021, 2), right = F),
+    #year_group = cut(exposure_year, breaks = seq(1994, 2021, 2), right = F),
+    # what Rachel did
+    year_group = floor(exposure_year/2)*2, 
+    year_group = factor(ifelse(year_group==2020, 2018, year_group)),
+    
     # --> could use ceiling(age_start_exposure) to capture the age participants turned that year
     Age = cut(age_start_exposure, breaks = seq(65,110, 5), right = F),
     male = ifelse(male==1, "Male", "Female"),
@@ -55,25 +65,34 @@ sur <- readRDS(file.path("Data", "Output", "sur.rda")) %>%
                                          ifelse(degree==5, "Doctorate",
                                                 ifelse(degree==6, "Other", NA)))))),
     degree = factor(degree, levels = c("None", "HS/GED", "Other", "Bachelor's", "Master's", "Doctorate")),
-    income_cat = ifelse(income_cat==1, "<$3,5000", 
-                        ifelse(income_cat==2, "$35,000-<$50,000", 
-                               ifelse(income_cat==3, "$50,000-<$75,000", ">$75,000"))),  
-    income_cat = factor(income_cat, levels = c("<$3,5000", "$35,000-<$50,000", "$50,000-<$75,000", ">$75,000")),
-    bmi4 = ifelse(bmi4==0, "Underweight", 
-                    ifelse(bmi4==1, "Normal", 
-                           ifelse(bmi4==2, "Overweight",
-                                  ifelse(bmi4==3, "Obese", NA)))),
-    bmi4 = factor(bmi4, levels = c("Underweight", "Normal", "Overweight", "Obese")),
+    # income_cat = ifelse(income_cat==1, "<$3,5000", 
+    #                     ifelse(income_cat==2, "$35,000-<$50,000", 
+    #                            ifelse(income_cat==3, "$50,000-<$75,000", ">$75,000"))),  
+    # income_cat = factor(income_cat, levels = c("<$3,5000", "$35,000-<$50,000", "$50,000-<$75,000", ">$75,000")),
+    # bmi4 = ifelse(bmi4==0, "Underweight", 
+    #                 ifelse(bmi4==1, "Normal", 
+    #                        ifelse(bmi4==2, "Overweight",
+    #                               ifelse(bmi4==3, "Obese", NA)))),
+    # bmi4 = factor(bmi4, levels = c("Underweight", "Normal", "Overweight", "Obese")),
     apoe = ifelse(apoe==1, "Carrier",
                   ifelse(apoe==0, "Non-Carrier", NA)),
+    ndi = ifelse(nses_z_cx<0, "Less Disadvantage", ifelse(nses_z_cx>=0, "More Disadvantage", NA)),
+    ufp = cut(ufp_10_42, breaks = quantile(ufp_10_42, seq(0,1, by=.25)), labels = F) %>% paste0("Q", .),
+    bc = cut(bc, breaks = quantile(bc, seq(0,1, by=.25)), labels = F) %>% paste0("Q", .),
+    no2 = cut(no2, breaks = quantile(no2, seq(0,1, by=.25)), labels = F) %>% paste0("Q", .),
+     
     ) %>%
   rename(Sex=male,
          Race = race_white,
          Degree = degree,
-         Income = income_cat,
-         BMI = bmi4,
-         APOEe4 = apoe,
-         Year = year_group
+         #Income = income_cat,
+         #BMI = bmi4,
+         APOE4 = apoe,
+         Year = year_group,
+         NDI = ndi,
+         UFP = ufp,
+         BC=bc,
+         NO2 =no2
          )
  
 incidence_multiplier <- 1e3
@@ -127,19 +146,27 @@ get_incidence <- function(dt=sur, var, cases="dementia_now") {
 
 ```{r}
 lvls <- c(levels(sur$Age),
-          unique(sur$APOEe4),
-          levels(sur$BMI),
+          unique(sur$APOE4),
           levels(sur$Degree),
-          levels(sur$Income),
+          #levels(sur$Income),
           unique(sur$Race),
           unique(sur$Sex),
-          levels(sur$Year)
+          levels(sur$Year),
+          unique(sur$NDI),
+          sort(unique(sur$UFP))#,
+          # sort(unique(sur$BC)),
+          # sort(unique(sur$NO2))
           )
 
-incidences <- lapply(c("Year", "Age", "Sex", "Race", "Degree", "Income", "BMI", "APOEe4"), function(x) get_incidence(var=all_of(x))) %>%
+vars <- c("UFP", "BC", "NO2", "Age", "Sex", "Race", "Degree", "APOE4", "NDI", "Year"
+          )
+
+incidences <- lapply(vars, function(x) get_incidence(var=all_of(x))) %>%
   bind_rows()  %>%
   mutate_at(c("est", "lower", "upper"), ~.*incidence_multiplier) %>%  
-  mutate(value = factor(value, levels = lvls))
+  mutate(value = factor(value, levels = lvls),
+         variable = factor(variable, levels = vars)
+         )
 
 
 
@@ -194,7 +221,7 @@ grid.arrange(p1, tbl)
 ```
 
 
-```{r}
+```{r, eval=F}
 # TEST - all data for ppl with 1+ follow-ups
 sur2 <- readRDS(file.path("Data", "Output", "sur0_redefined_categories.rda")) %>%
   distinct(study_id, 
@@ -225,9 +252,7 @@ grid.arrange(p2,
 
 
 
-```
-
-```{r}
+ 
 sur2 %>%
   group_by(exposure_year) %>%
   summarize(

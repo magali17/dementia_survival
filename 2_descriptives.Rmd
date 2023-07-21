@@ -49,7 +49,10 @@ image_path <- file.path("..", "manuscript", "images")
 source("functions.R")
 sur_person <- readRDS(file.path("Data", "Output", "sur_person.rda"))
 
-drop_pollutants <- c("uv_bc", "blue_bc", "green_bc", "red_bc")
+drop_pollutants <- c("uv_bc", "blue_bc", "green_bc", "red_bc",
+                     paste0("a", 1:3), paste0("m_", c("a", "b", "c", "d", "e", "f")),
+                     "nox", "co2"
+                     )
 
 sur <- readRDS(file.path("Data", "Output", "sur.rda")) %>% 
   filter(!pollutant %in% drop_pollutants)
@@ -104,6 +107,126 @@ exclusion_table2 <- exclusion_table %>%
 ```
 
  
+
+# Table 1
+ 
+```{r}
+#calculate whether individuals were above/below 10-year avg MM pollutant concentration at baseline
+baseline_conc_avg <- sur %>%
+  filter(exposure_duration==10,
+         model== "MM",
+         pollutant %in% c("ufp_10_42", "bc", "no2"#, "pm25"
+                          )) %>% 
+  group_by(study_id) %>%
+  filter(exposure_year==first(exposure_year)) %>% 
+  group_by(pollutant, exposure_year) %>%
+  mutate(
+    mean_baseline_conc = mean(pollutant_prediction),
+    above_average = pollutant_prediction >= mean_baseline_conc) %>%
+  ungroup() %>% 
+  select(study_id, age_start_exposure, exposure_year, pollutant, pollutant_prediction, above_average) %>%
+  pivot_wider(names_from = pollutant, values_from = c(pollutant_prediction, above_average))
+
+sur_person_t1 <- left_join(sur_person, baseline_conc_avg) %>%
+  mutate(apoe_available = !is.na(apoe))
+
+ 
+# Table1 tutorials: 
+## https://cran.r-project.org/web/packages/table1/table1.pdf 
+## https://cran.r-project.org/web/packages/table1/vignettes/table1-examples.html
+
+# # round statistics
+# my.render.cont <- function(x) {
+#     with(stats.apply.rounding(stats.default(x), digits=2), c("",
+#         "Mean (SD)"=sprintf("%s (%s)", MEAN, SD)))
+# }
+# my.render.cat <- function(x) {
+#     c("", sapply(stats.default(x), function(y) with(y,
+#         sprintf("%d (%0.0f%%)", FREQ, PCT))))
+# }
+
+  
+t1_labels <- list(
+  labels = list(
+    male = "Sex",
+    #intakeage = "Age at Intake",
+    age_start_exposure = "Age at Baseline",
+    follow_up_years = "Enrollment Duration",
+    corrected_anydementia = "All-Cause Dementia Cases",
+    ad_nincds = "Alzheimer's Disease Dementia Cases",
+    vad_dementia = "Vascular Dementia",
+    mixed_dementia = "Mixed Dementia",
+    other_dementia = "Other Dementia",
+    non_ad_dementia = "Non-Alzheimer's Disease Dementia Cases",
+    #birth_cohort = "Birth Cohort",
+    race_white = "Race",
+    degree = "Degree",
+    nses_z_cx = "Neighborhood Disadvantage Index (NDI)",
+    apoe = "APOE4 Genotype",
+    apoe_available = "Included in Main Analysis",
+    model_wt = "IPW for Modeling Cohort",
+    above_avg_ufp_10_42 = "Above Avg (PNC)",
+    pollutant_prediction_ufp_10_42 = "PNC (pt/cm3) Exposure",
+    pollutant_prediction_no2 = "NO2 (ppb) Exposure",
+    pollutant_prediction_bc = "BC (ng/m3) Exposure" #,  pollutant_prediction_pm25 = "PM2.5 (ug/m3)"
+    ),
+  units = list(
+    #intakeage = "Years"
+    age_start_exposure = "Years"),
+  categoricals = list(
+    male = list('1' = "Male",
+                '0' = "Female"),
+    corrected_anydementia = list('1' = "Yes",
+                                 '0' = "No"),
+    vad_dementia = list('1' = "Yes", 
+                        '0' = "No"),
+    mixed_dementia = list('1' = "Yes", 
+                        '0' = "No"),
+    other_dementia = list('1' = "Yes", 
+                        '0' = "No"),
+    non_ad_dementia = list('1' = "Yes", 
+                        '0' = "No"),
+    ad_nincds = list('1' = "Yes",
+                     '0' = "No"
+                                 ),
+    race_white = list('1' = "White",
+                      '0' = "People of Color"),
+    degree = list('0' = "None",
+                  '1' = "GED/High School",
+                  '3' = "Bachelor's",
+                  '4' = "Master's",
+                  '5' = "Doctorate",
+                  '6' = "Other"),
+    apoe = list('1' = "Carriers",
+                '0' = "Non-Carriers"),
+    apoe_available = list('TRUE' = "Included in Main Analysis",
+                          'FALSE' = "Not Included in Main Analysis"),
+    above_average_ufp_10_42 = list('FALSE' = "PNC Below Avg",
+                                   'TRUE' = "PNC Above Avg")
+    )#, groups=list("", "PNC Conc", "")
+  )
+
+# saveRDS(t1_labels, file.path("Data", "Output", "table1_labels.rda"))
+
+print("Baseline cohort characteristics stratified by whether 10-year average PNC concentration at baseline was below or above that year's average.")
+# Main Table 1
+t1read(filter(sur_person_t1, apoe_available==TRUE), t1_labels) %>%
+  table1(~age_start_exposure + follow_up_years + male + race_white +degree + nses_z_cx + #income_cat + 
+           apoe + model_wt + corrected_anydementia + ad_nincds + non_ad_dementia, #+ pollutant_prediction_ufp_10_42 + pollutant_prediction_no2 + pollutant_prediction_bc, #|above_average_ufp_10_42, 
+         data=., 
+         #groupspan=c(1,2,1)
+         # render.continuous = my.render.cont,
+         # render.categorical = my.render.cat
+         )
+
+#cat("\n")
+
+# # SI, by APOE STATUS/who is in the model
+# t1read(sur_person_t1, t1_labels) %>%
+#   table1(~age_start_exposure + follow_up_years + male + race_white +degree + nses_z_cx + apoe + model_wt + birth_cohort + corrected_anydementia + ad_nincds + pollutant_prediction_ufp_10_42 + pollutant_prediction_no2 + pollutant_prediction_bc + pollutant_prediction_pm25 | apoe_available, data=., )
+
+```
+
 
 # Prediction Maps
 
@@ -210,10 +333,10 @@ indicator_variables <- c("exp_wks_coverage10_yr_MM",
                          )
 lapply(indicator_variables, function(x) {
   t <- filter(sur, 
-       pollutant == first(pollutant),
+       pollutant == "ufp_10_42", #first(pollutant),
        model == "MM",
        exposure_duration ==10
-       ) %>%  
+       ) %>%   
   summary_table(var = x) %>%
   kable(caption = paste("distribution of", x), digits = 3) %>%
   kable_styling()
@@ -224,7 +347,7 @@ lapply(indicator_variables, function(x) {
 
 
 filter(sur, 
-       pollutant == first(pollutant),
+       pollutant == "ufp_10_42", #first(pollutant),
        model == "MM",
        exposure_duration ==10
        ) %>%
@@ -264,63 +387,124 @@ table(sur_person$model_wt>2)
 
 # Exposure 
 
-## Exposure Table
+## Exposure Fig/Table
 
 ```{r}
-# sur %>%
-#   filter(exposure_duration==10, pollutant==first(pollutant)) %>% View()
-#   
-#   dim()
 
-
-
-exposure_table <- sur %>%
+exposure_df <- sur %>%
   filter(exposure_duration==10,
-         !(grepl("PM25", pollutant, ignore.case = T) & grepl("MM|ST", model))
-         ) %>%# View()
-  group_by(pollutant, Model=model) %>%
-  summary_table("pollutant_prediction") %>%
-  mutate_at(vars(Min:Max), ~ifelse(grepl("ufp|bc", pollutant),
-                                   format(., digits=0, scientific = F, big.mark = ","),
-                                   format(., digits=2, scientific = F, big.mark = ",")
-                                   )) %>%
-  mutate_at(vars(N), ~format(., big.mark=",")) %>%
-  label_pollutants() %>% 
-  mutate(Analysis = ifelse(grepl("NanoScan|BC|NO2|CO2", pollutant) & Model=="MM", "Primary",
-                           ifelse(grepl("PM2.5",pollutant), "Primary", 
-                                  ifelse(grepl("nm|Size|onroad|_bc",pollutant), "Secondary",
-                                         "Sensitivity")
-                           )),
-         Model = ifelse(Model=="MM", "2019 Mobile Monitoring", 
-                        ifelse(Model=="SP", "2019 Spatiotemporal", "Time-Varying Spatiotemporal")
-                        )
-         ) %>%
+         !(grepl("PM25", pollutant, ignore.case = T) & grepl("MM|ST", model))) %>%
+  mutate(
+    model = ifelse(model== "SP", "2019 Spatiotemporal", 
+                   ifelse(model=="ST", "Spatiotemporal", 
+                          ifelse(model=="MM", "Mobile Monitoring",  NA))),
+    model = factor(model, levels=c("Mobile Monitoring", "2019 Spatiotemporal", "Spatiotemporal"))) %>%
+  label_pollutants2() %>%
   
-  #this is wrong - sums rows vs considering partial years
-  select(-N) %>%
+  mutate(
+    pt_range = ifelse(grepl("Particle Size", total_pnc), "Mean Size", as.character(pt_range)),
+    pt_range = factor(pt_range, levels=c("10-420 nm", "10-420 nm\n(Primary Analysis)",
+                                         "20-1,000 nm",
+                                         "20-1,000 nm, Onroad",
+                                         "10-700 nm",
+                                         "10-100 nm",
+                                         "10-13 nm",
+                                         "13-18 nm",
+                                         "18-24 nm",
+                                         "24-32 nm",
+                                         "32-42 nm",
+                                         "42-56 nm",
+                                         "56-75 nm",
+                                         "75-100 nm",
+                                         "100-133 nm",
+                                         "133-178 nm",
+                                         
+                                         "20-36 nm", 
+                                         "36-1,000 nm", " ",
+                                         "Mean Size")))
   
-  rename(Pollutant = pollutant) %>%
-  select(Analysis, Model, everything())
 
-exposure_table %>%
-  arrange(Analysis, Pollutant) %>%
-  kable(caption = "Distribution of 10-year average pollutant predictions for the cohort (N=____ person-years). Table includes pollutants used in primary and sensitivity analyses.") %>%
-  kable_styling()
+#UFP
+ufp_p <- exposure_df%>% 
+  filter(pollutant=="UFP") %>%  
+  
+  ggplot(aes(x=pollutant_prediction, col=instrument, y= pt_range)) + 
+  facet_wrap(~pollutant+total_pnc, scales="free", ) + 
+  geom_boxplot() + 
+  scale_x_log10() +
+  labs(col="Instrument", x = "10yr Exposure", y="Mobile Monitoring Model") 
+
+#non-UFP
+other_p <- exposure_df%>% 
+  filter(pollutant!="UFP") %>%
+  
+  ggplot(aes(x=pollutant_prediction, y=model)) + 
+  facet_wrap(~pollutant, scales="free_x") + 
+  geom_boxplot() + 
+  scale_x_log10() +
+  labs(col="Model", x = "10yr Exposure", y="Model")  
+
+ggarrange(ufp_p, other_p, nrow = 2, labels = "auto", heights = c(2,1))
+
+ggsave(file.path(image_path, "SI", "exposure_plots.png"), height = 8, width = 8)
 
 
-# --> FIX 
+
+
+# R freezes when this is run
+# 
+# exposure_table <- sur %>%
+#   filter(exposure_duration==10,
+#          !(grepl("PM25", pollutant, ignore.case = T) & grepl("MM|ST", model))
+#          ) %>%# View()
+#   group_by(pollutant, Model=model) %>%
+#   summary_table("pollutant_prediction") %>%
+#   mutate_at(vars(Min:Max), ~ifelse(grepl("ufp|bc", pollutant),
+#                                    format(., digits=0, scientific = F, big.mark = ","),
+#                                    format(., digits=2, scientific = F, big.mark = ",")
+#                                    )) %>%
+#   mutate_at(vars(N), ~format(., big.mark=",")) %>%
+#   label_pollutants() %>% 
+#   mutate(Analysis = ifelse(grepl("NanoScan|BC|NO2|CO2", pollutant) & Model=="MM", "Primary",
+#                            ifelse(grepl("PM2.5",pollutant), "Primary", 
+#                                   ifelse(grepl("nm|Size|onroad|_bc",pollutant), "Secondary",
+#                                          "Sensitivity")
+#                            )),
+#          Analysis = factor(sur, levels = c("Primary", "Sensitivity", "Secondary")),
+#          # Model = ifelse(Model=="MM", "2019 Mobile Monitoring", 
+#          #                ifelse(Model=="SP", "2019 Spatiotemporal", "Time-Varying Spatiotemporal")
+#          #                )
+#          Model = ifelse(Model=="MM", "2019 MM", 
+#                         ifelse(Model=="SP", "2019 ST", "Time-Varying ST")
+#                         )
+#          ) %>%
+#   
+#   #this is wrong - sums rows vs considering partial years
+#   select(-N) %>%
+#   
+#   rename(Pollutant = pollutant) %>%
+#   select(Analysis, Model, everything())
+# 
+# exposure_table %>%
+#   arrange(Analysis, Pollutant) %>%
+#   kable(caption = "Distribution of 10-year average pollutant predictions for the cohort (N=____ person-years). Table includes pollutants used in primary and sensitivity analyses.") %>%
+#   kable_styling()
+
+
 
 print("same as above but for the primary pollutants only")
 
 exposure_table %>%
-  filter((Model=="MM" & !grepl("PM2.5|DiSCmini|P-TRAK", Pollutant)) |
-           (Model=="SP" & grepl("PM2.5", Pollutant))
-         ) %>%
-  mutate(Pollutant = gsub(", NanoScan", "", Pollutant),
-         Pollutant = factor(Pollutant, levels = c("PNC (pt/cm3)", "BC (ng/m3)", "NO2 (ppb)", "PM2.5 (ug/m3)"))
-         ) %>%
-  arrange(Pollutant) %>%
-  select(-Model)%>%
+  filter(Analysis=="Primary") %>%
+  # filter((Model=="MM" & !grepl("PM2.5|DiSCmini|P-TRAK", Pollutant)) |
+  #          (Model=="SP" & grepl("PM2.5", Pollutant))
+  #        ) %>%
+  # mutate(Pollutant = gsub(", NanoScan", "", Pollutant),
+  #        Pollutant = factor(Pollutant, levels = c("PNC (pt/cm3)", "BC (ng/m3)", "NO2 (ppb)", "PM2.5 (ug/m3)"))
+  #        ) %>%
+  # arrange(Pollutant) %>%
+  
+  #select(-Model)%>%
   kable(caption = "Distribution of 10-year average pollutant predictions for the cohort (N=___ person-years)") %>%
   kable_styling()
 
@@ -328,84 +512,12 @@ exposure_table %>%
 
 
 
-# Correlations
-
-* note, not all rows have predictions for all pollutants b/c:
-   * MM is dropped more often than ST b/c of low exp_wks_coverage
-
-
-```{r}
-cor_df <- sur %>%
-  filter(exposure_duration==10) %>%
-  label_pollutants() %>%
-  mutate(#pollutant = gsub(" ", "\n", pollutant),
-         pollutant = paste(pollutant, model)
-         ) %>% 
-  select(study_id, exposure_year,  pollutant,  pollutant_prediction,
-         exp_wks_coverage10_yr_MM
-         ) %>% 
-  spread(pollutant, pollutant_prediction) %>% 
-  # select(contains(c(#"PNC", 
-  #                   "NanoScan",
-  #                   "BC", "NO2", "PM2.5"))) %>% 
-  select(contains(" MM")) %>%
-  
-  # not all rows have predictions for all pollutants b/c MM is dropped more often than ST due to low exp_wks_coverage
-  
-  # --> why are MM and SP sometimes dropped but not ST? Don't SP and ST have the same spatial coverage?
-  
-  drop_na() 
-
-
-```
-
-## table
-
-```{r}
-
-cor(cor_df, method = "pearson") %>%
-  kable(caption = "10-year pollutant prediction correlations", digits = 2) %>%
-  kable_styling()
-
-```
-
  
-## all pollutant 2D histogram
- 
-* MM PNC correlates better with SP PM2.5 than MM PM2.5. Is this b/c our PM2.5 measurements are unreliable?   
-* similar for PNC vs MM NO2 and SP No2   
-
-* MM NO2 is well correlated with ST NO2 b/c there is a positive relationship, even though the y-distribution is larger than with SP?
-* MM BC is better correlated with MM PmM.25 than SP PM2.5 (good)
-
-```{r}
-
-cor(cor_df) %>%
-  as.data.frame() %>%
-  mutate_all(~round(.,2)) %>%
-  rownames_to_column() %>%
-  pivot_longer(cols = -rowname) %>%
-  
-  ggplot(aes(x=rowname, y=name, fill=value)) + 
-  geom_bin2d() + # was geom_bin_2d() + 
-  geom_text(aes(label=value)) + 
-  scale_fill_gradient2(
-  low = "red",
-  mid = "white",
-  high = "green",
-  midpoint = 0.5) +
-  theme(axis.text.x = element_text(angle = 30, #vjust = 0.5, 
-                                   hjust=1)) + 
-  labs(x="", y="", fill="R")
-
-#ggsave(file.path(image_path, "SI", "correlations.png"), height = 8, width = 8)
-  
-```
 
 
+```{r, eval=F}
 ## PM2.5 & NO2 scatterplot
 
-```{r}
 print("Comparison of 10 year exposure predictions from MM and ST models")
 
 sur %>%
@@ -438,132 +550,6 @@ sur %>%
 ```
 
 
-# Table 1
- 
-```{r}
-#calculate whether individuals were above/below 10-year avg MM pollutant concentration at baseline
-baseline_conc_avg <- sur %>%
-  filter(exposure_duration==10,
-         model== "MM",
-         pollutant %in% c("ufp_10_42", "bc", "no2"#, "pm25"
-                          )) %>% 
-  group_by(study_id) %>%
-  filter(exposure_year==first(exposure_year)) %>% 
-  group_by(pollutant, exposure_year) %>%
-  mutate(
-    mean_baseline_conc = mean(pollutant_prediction),
-    above_average = pollutant_prediction >= mean_baseline_conc) %>%
-  ungroup() %>% 
-  select(study_id, age_start_exposure, exposure_year, pollutant, pollutant_prediction, above_average) %>%
-  pivot_wider(names_from = pollutant, values_from = c(pollutant_prediction, above_average))
-
-sur_person_t1 <- left_join(sur_person, baseline_conc_avg) %>%
-  mutate(apoe_available = !is.na(apoe))
-
- 
-# Table1 tutorials: 
-## https://cran.r-project.org/web/packages/table1/table1.pdf 
-## https://cran.r-project.org/web/packages/table1/vignettes/table1-examples.html
-
-# # round statistics
-# my.render.cont <- function(x) {
-#     with(stats.apply.rounding(stats.default(x), digits=2), c("",
-#         "Mean (SD)"=sprintf("%s (%s)", MEAN, SD)))
-# }
-# my.render.cat <- function(x) {
-#     c("", sapply(stats.default(x), function(y) with(y,
-#         sprintf("%d (%0.0f%%)", FREQ, PCT))))
-# }
-
-  
-t1_labels <- list(
-  labels = list(
-    male = "Sex",
-    #intakeage = "Age at Intake",
-    age_start_exposure = "Age at Baseline",
-    follow_up_years = "Enrollment Duration",
-    corrected_anydementia = "All-Cause Dementia Cases",
-    ad_nincds = "Alzheimer's Disease Dementia Cases",
-    vad_dementia = "Vascular Dementia",
-    mixed_dementia = "Mixed Dementia",
-    other_dementia = "Other Dementia",
-    non_ad_dementia = "Non-Alzheimer's Disease Dementia Cases",
-    #birth_cohort = "Birth Cohort",
-    race_white = "Race",
-    degree = "Degree",
-    #income_cat = "2,000 Census Tract Income at Baseline",
-    nses_z_cx = "Neighborhood Disadvantage Index (NDI)",
-    
-    apoe = "APOE e4 Allele",
-    apoe_available = "Included in Main Analysis",
-    model_wt = "IPW for Modeling Cohort",
-    above_avg_ufp_10_42 = "Above Avg (PNC)",
-    pollutant_prediction_ufp_10_42 = "Residential PNC (pt/cm3) Level",
-    pollutant_prediction_no2 = "Residential NO2 (ppb) Level",
-    pollutant_prediction_bc = "Residential BC (ng/m3) Level" #,  pollutant_prediction_pm25 = "PM2.5 (ug/m3)"
-    ),
-  units = list(
-    #intakeage = "Years"
-    age_start_exposure = "Years"
-     ),
-  categoricals = list(
-    male = list('1' = "Male",
-                '0' = "Female"),
-    corrected_anydementia = list('1' = "Yes",
-                                 '0' = "No"),
-    vad_dementia = list('1' = "Yes", 
-                        '0' = "No"),
-    mixed_dementia = list('1' = "Yes", 
-                        '0' = "No"),
-    other_dementia = list('1' = "Yes", 
-                        '0' = "No"),
-    non_ad_dementia = list('1' = "Yes", 
-                        '0' = "No"),
-    ad_nincds = list('1' = "Yes",
-                     '0' = "No"
-                                 ),
-    #birth_cohort = list(sort(unique(sur_person$birth_cohort))),
-    race_white = list('1' = "White",
-                      '0' = "People of Color"),
-    degree = list('0' = "None",
-                  '1' = "GED/High School",
-                  '3' = "Bachelor's",
-                  '4' = "Master's",
-                  '5' = "Doctorate",
-                  '6' = "Other"),
-    # income_cat = list('1' = "<$35,000",
-    #                   '2' = "$35,000 - <$50,000",
-    #                   '3' = "$50,000 - <$75,000",
-    #                   '4' = ">$75,000"),
-    apoe = list('1' = "Carriers",
-                '0' = "Non-Carriers"),
-    apoe_available = list('TRUE' = "Included in Main Analysis",
-                          'FALSE' = "Not Included in Main Analysis"),
-    above_average_ufp_10_42 = list('FALSE' = "PNC Below Avg",
-                                   'TRUE' = "PNC Above Avg")
-    )#, groups=list("", "PNC Conc", "")
-  ) 
-
-print("Baseline cohort characteristics stratified by whether 10-year average PNC concentration at baseline was below or above that year's average.")
-# Main Table 1
-t1read(filter(sur_person_t1, apoe_available==TRUE), t1_labels) %>%
-  table1(~age_start_exposure + follow_up_years + male + race_white +degree + nses_z_cx + #income_cat + 
-           apoe + model_wt + corrected_anydementia + ad_nincds + non_ad_dementia +  
-           pollutant_prediction_ufp_10_42 + pollutant_prediction_no2 + pollutant_prediction_bc,  
-         #|above_average_ufp_10_42, 
-         data=., 
-         #groupspan=c(1,2,1)
-         # render.continuous = my.render.cont,
-         # render.categorical = my.render.cat
-         )
-
-#cat("\n")
-
-# # SI, by APOE STATUS/who is in the model
-# t1read(sur_person_t1, t1_labels) %>%
-#   table1(~age_start_exposure + follow_up_years + male + race_white +degree + nses_z_cx + apoe + model_wt + birth_cohort + corrected_anydementia + ad_nincds + pollutant_prediction_ufp_10_42 + pollutant_prediction_no2 + pollutant_prediction_bc + pollutant_prediction_pm25 | apoe_available, data=., )
-
-```
 
 
 ## Event ties
