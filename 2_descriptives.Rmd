@@ -151,7 +151,7 @@ t1_labels <- list(
     male = "Sex",
     #intakeage = "Age at Intake",
     age_start_exposure = "Age at Baseline",
-    follow_up_years = "Enrollment Duration",
+    follow_up_years = "Follow-Up Duration",
     corrected_anydementia = "All-Cause Dementia Cases",
     ad_nincds = "Alzheimer's Disease Dementia Cases",
     vad_dementia = "Vascular Dementia",

@@ -40,9 +40,9 @@ sur0 <- readRDS(file.path("Data", "Output", "sur_full_cohort.rda")) %>%
 ######################################################################
 # COMMON VARIABLES
 ######################################################################
-pnc_units <- 1000
+pnc_units <- 2000 #1000
 bc_units <- 100
-no2_units <- 5
+no2_units <- 2 #5
 pm25_units <- 1
 
 save(pnc_units, bc_units, no2_units, pm25_units, file = file.path(output_data_path, "trap_model_units.rda"))
@@ -138,6 +138,19 @@ all_ap_models <- c(
 
 # TEST
 # all_ap_models <- c("MM_bc", "SP_pm25")
+
+# PM2.5 models; compare to Rachel's findings
+st_pm2.5_models <- c(
+  list(c("ST_pm25")), # could drop this since already doing
+  # 2 pollutant models
+  list(c("ST_pm25", "MM_ufp_10_42")),
+  list(c("ST_pm25", "MM_bc")),
+  list(c("ST_pm25", "MM_no2")),
+  list(c("ST_pm25", "MM_ufp_10_42", "MM_bc", "MM_no2"))
+  )
+
+
+
 ######################################################################
 # FUNCTIONS
 ######################################################################
@@ -223,8 +236,12 @@ save(run_cox, run_cox_many_times, file = file.path("Data","Output", "cox_model_f
 ######################################################################
 # MODELS
 ######################################################################
+# drop last 2 years w/ administrative censoring - incidence is artificially high b/c person w/o visits for 
+# that particular year (~50%?) are not included in the denominator
+start_of_bad_yrs <- 2018 #2019 # 2019 is basically only ~1 yr since freeze happens in Mar 2020; also, 2018-2020 are binned together in models
+
 hrs_main <- sur_w %>%
-  #filter(exposure_year >= first_exposure_year) %>% 
+  filter(exposure_year < start_of_bad_yrs)  %>%
   mutate(cal_2yr = droplevels(cal_2yr)) %>% 
   run_cox_many_times(., pollutant_predictors = all_ap_models)  %>%
   mutate(description = ifelse(grepl("pnc_20_36|ufp_36_1k|ns_", pollutant_predictors), "PNC by Size",
@@ -232,46 +249,41 @@ hrs_main <- sur_w %>%
                                      ifelse(grepl("pnc_onrd", pollutant_predictors), "PNC, Onroad Model", "Main Analysis"
                                             ))))  
 
+hrs_dont_drop_last_2yr <- sur_w %>%
+  mutate(cal_2yr = droplevels(cal_2yr)) %>%
+  run_cox_many_times(.) %>%
+  mutate(#description = paste0("Restricted Cohort (Pre ",start_of_bad_yrs,")")
+    description = "Non-Restricted Cohort (1994-2020)"
+         )
+
 # other outcomes
 hrs_other_outcomes <- sur_w %>%
-  #filter(exposure_year >= first_exposure_year) %>% 
+  filter(exposure_year < start_of_bad_yrs)  %>%
   mutate(cal_2yr = droplevels(cal_2yr)) %>% 
   run_cox_many_times(., outcomes.= c("ad_now", "non_ad_now")) %>%
   mutate(description = paste0("Dementia Subtype Outcomes"))
 
 # other exposure periods
 hrs_other_exposure_periods <- sur_w %>%
-  #filter(exposure_year >= first_exposure_year) %>% 
+  filter(exposure_year < start_of_bad_yrs)  %>%
   mutate(cal_2yr = droplevels(cal_2yr)) %>% 
   run_cox_many_times(., exposure_duration. = c(1,5)) %>%
   mutate(description = paste0("Shorter Exposure Period"))
 
-# # all years
-# hrs_extended_cohort <- sur_w %>%
-#   run_cox_many_times(.) %>%
-#   mutate(description = "Extended Cohort (1994+)")
-
 # most recent years
 hrs_2010 <- sur_w %>%
-  filter(exposure_year < first_exposure_year+10) %>%
+  filter(exposure_year < start_of_bad_yrs,
+         exposure_year < first_exposure_year+10) %>%
   mutate(cal_2yr = droplevels(cal_2yr)) %>%
   run_cox_many_times(.) %>%
-  mutate(description = paste0("Restricted Cohort (", first_exposure_year+10, "+)"))
-
-# drop last 2 years w/ administrative censoring - incidence is artificially high b/c person w/o visits for 
-# that particular year (~50%?) are not included in the denominator
-start_of_bad_yrs <- 2018 #2019 # 2019 is basically only ~1 yr since freeze happens in Mar 2020; also, 2018+ is binned together in models
-
-hrs_drop_last_2yr <- sur_w %>%
-  filter(exposure_year < start_of_bad_yrs)  %>%
-  mutate(cal_2yr = droplevels(cal_2yr)) %>%
-  run_cox_many_times(.) %>%
-  mutate(description = paste0("Restricted Cohort (Pre ",start_of_bad_yrs,")"))
+  mutate(description = paste0("Restricted Cohort (", first_exposure_year+10, "+)")
+         #description = paste0("Restricted Cohort (", first_exposure_year+10, "-", start_of_bad_yrs-1, ")")
+         )
 
  
 # no IPW
 hrs_no_ipw <- sur_w %>%
-  #filter(exposure_year >= first_exposure_year) %>% 
+  filter(exposure_year < start_of_bad_yrs)  %>%
   mutate(cal_2yr = droplevels(cal_2yr)) %>% 
   mutate(model_wt = 1) %>%
   run_cox_many_times(.) %>%
@@ -279,7 +291,7 @@ hrs_no_ipw <- sur_w %>%
 
 # adjust for baseline age
 hrs_baseline_age <- sur_w %>%
-  #filter(exposure_year >= first_exposure_year) %>% 
+  filter(exposure_year < start_of_bad_yrs)  %>%
   mutate(cal_2yr = droplevels(cal_2yr)) %>%  
   group_by(study_id) %>%
   mutate(baseline_age = min(age_start_exposure)) %>% 
@@ -293,12 +305,13 @@ hrs_baseline_age <- sur_w %>%
 
 # calendar time-axis, adjust 2-year age group
 hrs_calendar_axis <- sur_w %>%
-  #filter(exposure_year >= first_exposure_year) %>%  
+  filter(exposure_year < start_of_bad_yrs)  %>%
   mutate(cal_2yr = droplevels(cal_2yr),
          exposure_year0 = exposure_year-355/356, #start is 1 day into the previous year. may be fine to just use 1 for simplicity
          age_start_exposure = cut(age_start_exposure, seq(min(age_start_exposure), max(age_start_exposure), 2), right = F)) %>% 
   run_cox_many_times(., start_time = "exposure_year0", end_time = "exposure_year", 
-                     other_predictors = c("age_start_exposure", "cal_2yr", "degree", "nses_z_cx", "male", "race_white")) %>%  
+                     other_predictors = c("age_start_exposure", #"cal_2yr", 
+                                          "degree", "nses_z_cx", "male", "race_white")) %>%  
   mutate(description = "Calendar Time Axis & 2yr Age Adjustment")
 
 ######################################################################
@@ -315,7 +328,7 @@ effect_modification_ap_models <- c(
 
 hrs_effect_modification <- lapply(var, function(i){
    sur_w %>%
-    #filter(exposure_year >= first_exposure_year) %>% 
+    filter(exposure_year < start_of_bad_yrs)  %>%
     mutate(cal_2yr = droplevels(cal_2yr),
            
            high_degree = ifelse(degree %in% c(0:2,6), 0, ifelse(degree %in% c(3:5), 1, NA)), #) %>% select(degree, high_degree) %>% group_by(high_degree) %>% summarize(paste(unique(degree)))
@@ -352,7 +365,7 @@ hrs_em_pval_ap_models <- c(
 
 hrs_effect_modification_pval <- lapply(var, function(i){
   sur_w %>%
-    #filter(exposure_year >= first_exposure_year) %>%
+    filter(exposure_year < start_of_bad_yrs)  %>%
     mutate(cal_2yr = droplevels(cal_2yr),
            high_degree = ifelse(degree %in% c(0:2,6), 0, ifelse(degree %in% c(3:5), 1, NA)), #) %>% select(degree, high_degree) %>% group_by(high_degree) %>% summarize(paste(unique(degree)))
            #high_income = ifelse(income_cat %in% c(1:2), 0, ifelse(income_cat %in% c(3:4), 1, NA)),
@@ -366,29 +379,36 @@ hrs_effect_modification_pval <- lapply(var, function(i){
            )
 }) %>%
   bind_rows()
- 
-######################################################################
-# UFP SIZE -  EXPLORATORY
-######################################################################
-  
-# # adjust for ufp size # - don't see anything when we linearly adjsut
-# hrs_ufp_size <- sur_w %>%
-#   mutate(cal_2yr = droplevels(cal_2yr),
-#          MM_pmdisc_sz = cut(MM_pmdisc_sz, seq(min(MM_pmdisc_sz, na.rm = T), max(MM_pmdisc_sz, na.rm = T), length.out=4))
-#          
-#          ) %>%   
-#   group_by(study_id) %>%
-#   ungroup() %>%
-#   run_cox_many_times(., other_predictors = c("intakeage", "cal_2yr", "degree", "nses_z_cx", "male", "race_white", "MM_pmdisc_sz")) %>% 
-#   mutate(description = "Adjusted for Pt Size")
 
 ######################################################################
 # SAVE HAZARD RATIOS
 ######################################################################
 hrs <- rbind(hrs_main, hrs_other_outcomes, hrs_other_exposure_periods, #hrs_extended_cohort, 
              hrs_no_ipw, hrs_baseline_age, hrs_calendar_axis, hrs_2010,
-             hrs_drop_last_2yr,
+             hrs_dont_drop_last_2yr,
              hrs_effect_modification, hrs_effect_modification_pval)
 saveRDS(hrs, file.path(output_data_path, "hazard_ratios.rda"))
 
 message("done with 3_run_models.R")
+
+
+######################################################################
+# ST PM2.5 WITH THIS DATASET - WRONG B/C BASED ON MM COVERAGE VARIABLE?
+######################################################################
+
+pm2.5_hrs <- sur_w %>%
+  filter(exposure_year < start_of_bad_yrs)  %>%
+  mutate(cal_2yr = droplevels(cal_2yr)) %>% 
+  run_cox_many_times(., pollutant_predictors = st_pm2.5_models)  %>%
+  mutate(#description = ifelse(grepl("pnc_20_36|ufp_36_1k|ns_", pollutant_predictors), "PNC by Size",
+  #                             ifelse(grepl("pmdisc_sz", pollutant_predictors), "Particle Size",
+  #                                    ifelse(grepl("pnc_onrd", pollutant_predictors), "PNC, Onroad Model", "Main Analysis"
+  #                                    )))
+  description = "ST PM2.5"
+)  
+
+saveRDS(pm2.5_hrs, file.path(output_data_path, "hazard_ratios_st_pm2.5.rda"))
+
+
+
+

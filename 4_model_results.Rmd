@@ -44,6 +44,7 @@ set.seed(1)
 image_path <- file.path("..", "manuscript", "images")
 #if(!file.exists(output_data_path)) {dir.create(output_data_path)} 
 if(!file.exists(file.path(image_path, "Other", "HR Plots"))) {dir.create(file.path(image_path, "Other", "HR Plots"))} 
+if(!file.exists(file.path(image_path, "Other", "PM2.5"))) {dir.create(file.path(image_path, "Other", "PM2.5"))} 
 
 #modeled units
 load(file.path(output_data_path, "trap_model_units.rda"))
@@ -110,8 +111,10 @@ hrs <- hrs0 %>%
          ) #%>% filter(grepl("NO2", pollutant)) %>% View()
   
 
-pollutant_levels <- c("PNC (1000 pt/cm3)\nNanoScan", "PNC (1000 pt/cm3) NanoScan",
-                      "BC (100 ng/m3)", "NO2 (5 ppb)", "PM2.5 (1 ug/m3)",
+pollutant_levels <- c(paste0("PNC (", pnc_units, " pt/cm3)\nNanoScan"), paste0("PNC (", pnc_units, " pt/cm3) NanoScan"), #"PNC (1000 pt/cm3) NanoScan",
+                      paste0("BC (", bc_units, " ng/m3)"), 
+                      paste0("NO2 (", no2_units, " ppb)"), 
+                      paste0("PM2.5 (", pm25_units, " ug/m3)"),
                       
                       #NS bins
                       "PNC\n10-100 nm (pt/cm3)", 
@@ -131,10 +134,11 @@ pollutant_levels <- c("PNC (1000 pt/cm3)\nNanoScan", "PNC (1000 pt/cm3) NanoScan
                       "PNC\n36-1k nm (pt/cm3)",
                       
                       #other total UFP instruments
-                      "PNC (1000 pt/cm3)\nP-TRAK", "PNC (1000 pt/cm3)\nDiSCmini",
+                      paste0("PNC (", pnc_units, " pt/cm3)\nP-TRAK"), paste0("PNC (", pnc_units, " pt/cm3)\nDiSCmini"),
+                      #"PNC (1000 pt/cm3)\nP-TRAK", "PNC (1000 pt/cm3)\nDiSCmini",
                       
                       #onroad PTRAK
-                      "PNC (1000 pt/cm3)\nOnroad",
+                      paste0("PNC (", pnc_units, " pt/cm3)\nOnroad"), #"PNC (1000 pt/cm3)\nOnroad",
                       
                       #size
                       "Median Pt Size\nDiSCmini",
@@ -307,7 +311,7 @@ main_hrs <- hrs %>%
         grepl("2019 MM", exposure_model)) %>%
   mutate(
     pollutant = gsub("\nNanoScan", "", pollutant),
-    pollutant = factor(pollutant, levels = c("PNC (1000 pt/cm3)", levels(hrs$pollutant))),
+    pollutant = factor(pollutant, levels = c(paste0("PNC (", pnc_units ," pt/cm3)"), levels(hrs$pollutant))),
     description = ifelse(grepl("Bi-Pollutant", model), "Primary", "Sensitivity"))
 
 main_hrs %>%
@@ -369,6 +373,7 @@ main_hrs %>%
 
 ## Other UFP instruments
 
+## --> eror in plot - lot of NAs at the top
 
 ```{r}
  
@@ -467,7 +472,7 @@ ggsave(file.path(image_path, #"SI",
 ufp_hrs %>%
   #select(pollutant, Model=model, hr_label) %>%
   select('UFP Model' = pollutant, 'HR (95% CI)' = hr_label) %>%
-  kable(caption = "Estimated hazard ratio (95% CI) for the incidence of all-cause dementia associated with an increase in ten-year average UFP (1,000 pt/cm3) exposure level, as determined by exposure prediction models that use different UFP instruments and particle size ranges.") %>%
+  kable(caption = "Estimated hazard ratio (95% CI) for the incidence of all-cause dementia associated with an increase in ten-year average UFP (__k pt/cm3) exposure level, as determined by exposure prediction models that use different UFP instruments and particle size ranges.") %>%
   kable_styling()
 
 
@@ -514,9 +519,9 @@ ufp_hrs %>%
 
 ```{r}
 sensitivity_lvs <- c("Main Analysis", 
-                     #"Extended Cohort (1994+)", 
                      "Restricted Cohort (2010+)",
-                     "Restricted Cohort (Pre 2019)",
+                     #"Restricted Cohort (Pre 2019)",
+                     "Non-Restricted Cohort (1994-2020)",
                      "Baseline Age Adjustment",
                      "Calendar Time Axis & 2yr Age Adjustment", "Calendar Time Axis\n& 2yr Age Adjustment",
                      
@@ -534,7 +539,7 @@ sensitivity_hrs <- hrs %>%
          #!grepl("(Pre 2019)", description)
          ) %>% 
   mutate(pollutant = gsub("\nNanoScan", "", pollutant),
-         pollutant = factor(pollutant, levels = c("PNC (1000 pt/cm3)", levels(hrs$pollutant))),
+         pollutant = factor(pollutant, levels = c(paste0("PNC (", pnc_units ," pt/cm3)"), levels(hrs$pollutant))),
          #pollutant = droplevels(pollutant),
          description = gsub("Calendar Time Axis & 2yr Age Adjustment", "Calendar Time Axis\n& 2yr Age Adjustment", description),
          #description = droplevels(description),
@@ -584,7 +589,7 @@ secondary_hrs <- hrs %>%
          !(grepl("NO2", pollutant) & exposure_model %in% c("2019 ST", "ST + 2019 ST"))
          ) %>% 
   mutate(pollutant = gsub("\nNanoScan", "", pollutant),
-          pollutant = factor(pollutant, levels = c("PNC (1000 pt/cm3)", levels(hrs$pollutant))),
+          pollutant = factor(pollutant, levels = c(paste0("PNC (", pnc_units ," pt/cm3)"), levels(hrs$pollutant))),
          description = ifelse(grepl("Subtype", description), paste(outcome, "Outcome"),
                               ifelse(grepl("Exposure Period", description), paste(exposure_duration, "Yr Exposure Period"),
                                      as.character(description))),
@@ -707,5 +712,134 @@ modification_hrs %>%
   kable_styling()
 ```
 
+
+
+# PM2.5 Results with new data & models
+
+## SP 2019 PM2.5 results from current models
+
+* ST PM2.5 in single pollutant model here is similar but not identical to Rachels original fidings. This is a different analysis
+
+* other PM2.5 results are for SP 2019 PM2.5, so not what we would report in a paper 
+
+* note that the PM2.5 effect is for 3 instruments (NS, P-TRAK, discmini)
+
+```{r}
+pm2.5 <- hrs %>%
+  filter(grepl("Main", description),
+        grepl("PM2.5", pollutant),
+        exposure_duration == 10,
+        # dont include SP or ST NO2 sensitivity analysis
+        !exposure_model %in% c("2019 ST", 
+                               "ST + 2019 ST", 
+                               "ST")
+        ) %>%  
+  mutate(
+    pollutant = gsub("\nNanoScan", "", pollutant),
+    pollutant = factor(pollutant, levels = c(paste0("PNC (", pnc_units ," pt/cm3)"), levels(hrs$pollutant))),
+    description = ifelse(grepl("Bi-Pollutant", model), "Primary", "Sensitivity"))
+
+pm2.5 %>%
+  ggplot(., aes(y=pollutant_predictors, x=hr, xmin=lower95, xmax=upper95,)) +
+  facet_grid(~ "All-Cause Dementia", #vars(outcome),
+             #cols = vars(exposure_model),
+             switch = "both") +
+  geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
+  geom_pointrange(position = position_dodge(width = 1), aes(#linetype=description,
+                                                            #col=description,
+                                                            #shape=description
+                                                            )) +
+  geom_text(aes(label=hr_label, x=.85, hjust=.2, fontface="bold"))+
+  labs(x= "HR (95% CI)", y="SP PM2.5 Model",
+       linetype="Analysis", col="Analysis", shape="Analysis"
+       )
+  # ggplot(., aes(y=model, x=hr, xmin=lower95, xmax=upper95,)) +
+  # facet_grid(rows = vars(pollutant_predictors),
+  #            cols = vars(exposure_model),
+  #            switch = "both") +
+  # geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
+  # geom_pointrange(position = position_dodge(width = 1), aes(linetype=description,
+  #                                                           col=description,
+  #                                                           shape=description
+  #                                                           )) +
+  # geom_text(aes(label=hr_label, x=.7, hjust=.2, fontface="bold"))+
+  # labs(x= "HR (95% CI)", y="SP 2019 PM2.5 Exposure",
+  #      linetype="Analysis", col="Analysis", shape="Analysis"
+  #      )
+
+ggsave(file.path(image_path, "Other", "PM2.5", "hrs_sp_pm2.5.png"), width = 7, height = 6)
+
+```
+
+## ST PM2.5 results using the same dataset 
+
+* these have the spatial coverage requirement like main analysis w/ MM
+
+* results are similar to
+
+```{r}
+st_pm2.5_hrs0 <- readRDS(file.path(output_data_path, "hazard_ratios_st_pm2.5.rda")) 
+
+st_pm2.5_hrs <- st_pm2.5_hrs0 %>%
+  filter(covariate == "ST_pm25") %>%
+  mutate(
+    significant = ifelse((lower95 <1 & upper95<1) | (lower95 >1 & upper95>1), "Significant", "Non-Significant" ),
+    hr_label = paste0(format(round(hr, 2), nsmall=2), " (", format(round(lower95, 2), nsmall=2), "-", format(round(upper95,2), nsmall=2), ")"),
+    )
+
+print("PM2.5 effects, without adjustment, or with adjustment from MM UPF, NO2 and/or BC models")
+st_pm2.5_hrs %>%
+  ggplot(., aes(y=pollutant_predictors, x=hr, xmin=lower95, xmax=upper95,)) +
+  facet_grid(~ "All-Cause Dementia", #vars(outcome),
+             #cols = vars(exposure_model),
+             switch = "both") +
+  geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
+  geom_pointrange(position = position_dodge(width = 1), aes(#linetype=description,
+                                                            # col=description,
+                                                            # shape=description
+                                                            )) +
+  geom_text(aes(label=hr_label, x=.85, hjust=.2, fontface="bold"))+
+  labs(x= "HR (95% CI)", y="ST PM2.5 Model",
+       linetype="Analysis", col="Analysis", shape="Analysis"
+       )
+
+ggsave(file.path(image_path, "Other", "PM2.5", "hrs_st_pm2.5.png"), width = 8, height = 5)
+
+```
+
+same as above but showing effect estiates for other pollutants.
+
+* results we would have seen if we had used ST PM.5 in the models     
+* why does BC look protective? PM2.5 & BC are somewhat correlated. Is time-varying PM2.5 soaking up the effect of BC since BC has high expsure measurement error for early years?
+
+```{r}
+st_pm2.5_hrs0 %>%
+  filter( grepl("ST_pm25|no2|bc|ufp", covariate)) %>% 
+  mutate(
+    significant = ifelse((lower95 <1 & upper95<1) | (lower95 >1 & upper95>1), "Significant", "Non-Significant" ),
+    hr_label = paste0(format(round(hr, 2), nsmall=2), " (", format(round(lower95, 2), nsmall=2), "-", format(round(upper95,2), nsmall=2), ")"),
+    ) %>%
+
+#st_pm2.5_hrs %>%
+  ggplot(., aes(y=covariate, x=hr, xmin=lower95, xmax=upper95,)) +
+  facet_wrap(#~ "All-Cause Dementia", #vars(outcome),
+    ~pollutant_predictors, scales="free"
+             # rows = vars(covariate),
+             # cols = vars(pollutant_predictors),
+             # switch = "both"
+    ) +
+  geom_vline(xintercept = 1, alpha=0.5, linetype=2) + 
+  geom_pointrange(position = position_dodge(width = 1), aes(#linetype=description,
+                                                            # col=description,
+                                                            # shape=description
+                                                            )) +
+  geom_text(aes(label=hr_label, x=.5, hjust=.2, fontface="bold"))+
+  labs(x= "HR (95% CI)", y="ST PM2.5 Model",
+       linetype="Analysis", col="Analysis", shape="Analysis"
+       )
+
+ggsave(file.path(image_path, "Other", "PM2.5", "hrs_st_pm2.5_v2.png"), width = 10, height = 7)
+
+ ```
 
 

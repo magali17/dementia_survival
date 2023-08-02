@@ -128,8 +128,8 @@ g4_start <- 2013
 
 # OLD VS NEW MODELS   
 
-* these analyses use the new data predictions but only for the old Study IDs and years to incrase comparability 
-* The current TRAP survival analyses use a coverage threshold of 0.5, so the new dataset has slightly fewer person-years than the original, which didn't have a threshold by <3% of the person-years had a threshold < 98%.
+* these analyses use the new data predictions but only for the old Study IDs and years to increase comparability 
+* The current TRAP survival analyses use a coverage threshold of 0.5, so the new dataset has slightly fewer person-years than the original, which didn't have a threshold, but <3% of the person-years had a threshold < 98% anyway.
 
 
 ```{r}
@@ -280,6 +280,17 @@ models_old_new_time %>%
    labs(title = "Dementia incidence HRs for 10 yr Exposures (no other pollutants in models)",
          x= "HR", y="Person-Years", col = "ST PM2.5 Version")
  
+```
+
+**why is the old model different from what Rachel reported?**    
+* the "old" PM2.5 model dataset came from my files, not Rachel's (?)   
+* the new models include exposures for the full 2018 year (more person-years)
+*
+
+
+
+```{r}
+
 # show all year/main model results
 models_old_new_time %>%
   filter(grepl("^ST_|SP_|^MM_", covariate),
