@@ -33,11 +33,16 @@ set.seed(1)
 
 image_path <- file.path("..", "manuscript", "images")
  
+# want to drop last 2 years w/ administrative censoring - incidence is artificially high b/c person w/o visits for 
+start_of_bad_yrs <- readRDS(file.path("Data", "Output", "1_prep_data", "start_of_bad_yr.rda"))
+
 # Load files 
 source("functions.R")
 # analysis cohort
 sur0 <- readRDS(file.path("Data", "Output", "sur.rda")) %>%
-  filter(exposure_duration==10, model== "MM") %>%
+  filter(exposure_duration==10, model== "MM",
+         exposure_year < start_of_bad_yrs
+         ) %>%
   distinct(study_id, exposure_year, age_start_exposure, age_end_exposure, corrected_anydementia, dementia_now, male,race_white, degree, #income_cat, 
            apoe, #bmi4,
            nses_z_cx,
@@ -48,13 +53,12 @@ sur0 <- readRDS(file.path("Data", "Output", "sur.rda")) %>%
 
 sur <- sur0 %>%
   mutate(
-    follow_up_years = round(age_end_exposure - age_start_exposure, 2),
-    #year_group = cut(exposure_year, breaks = seq(1994, 2021, 2), right = F),
+    #follow_up_years = round(age_end_exposure - age_start_exposure, 2),
+    follow_up_years = age_end_exposure - age_start_exposure,
     # what Rachel did
     year_group = floor(exposure_year/2)*2, 
     year_group = factor(ifelse(year_group==2020, 2018, year_group)),
     
-    # --> could use ceiling(age_start_exposure) to capture the age participants turned that year
     Age = cut(age_start_exposure, breaks = seq(65,110, 5), right = F),
     male = ifelse(male==1, "Male", "Female"),
     race_white = ifelse(race_white==1, "White", "People of Color"),
@@ -77,10 +81,9 @@ sur <- sur0 %>%
     apoe = ifelse(apoe==1, "Carrier",
                   ifelse(apoe==0, "Non-Carrier", NA)),
     ndi = ifelse(nses_z_cx<0, "Less Disadvantage", ifelse(nses_z_cx>=0, "More Disadvantage", NA)),
-    ufp = cut(ufp_10_42, breaks = quantile(ufp_10_42, seq(0,1, by=.25)), labels = F) %>% paste0("Q", .),
-    bc = cut(bc, breaks = quantile(bc, seq(0,1, by=.25)), labels = F) %>% paste0("Q", .),
-    no2 = cut(no2, breaks = quantile(no2, seq(0,1, by=.25)), labels = F) %>% paste0("Q", .),
-     
+    ufp = cut(ufp_10_42, breaks = quantile(ufp_10_42, seq(0,1, by=.25)), labels = F, include.lowest = T) %>% paste0("Q", .),
+    bc = cut(bc, breaks = quantile(bc, seq(0,1, by=.25)), labels = F, include.lowest = T) %>% paste0("Q", .),
+    no2 = cut(no2, breaks = quantile(no2, seq(0,1, by=.25)), labels = F, include.lowest = T) %>% paste0("Q", .)
     ) %>%
   rename(Sex=male,
          Race = race_white,
@@ -158,8 +161,7 @@ lvls <- c(levels(sur$Age),
           # sort(unique(sur$NO2))
           )
 
-vars <- c("UFP", "BC", "NO2", "Age", "Sex", "Race", "Degree", "APOE4", "NDI", "Year"
-          )
+vars <- c("UFP", "BC", "NO2", "Age", "Sex", "Race", "Degree", "APOE4", "NDI", "Year")
 
 incidences <- lapply(vars, function(x) get_incidence(var=all_of(x))) %>%
   bind_rows()  %>%
@@ -197,7 +199,9 @@ ggsave(file.path(image_path, "SI", "incience_rates.png"), width = 12, height = 1
 ```
 
 
-# test, why are rates so much higher recetnly?
+# Plots showing high incidence rates 2 yrs before the data freeze
+
+* b/c of how the datasets are built, there are always fewer person years ~2 years before a data freeze
 
 
 ```{r}
@@ -206,18 +210,42 @@ library(gridExtra)
 year_incidence <- get_incidence(var = "exposure_year") %>%
   select(year=value, cases, person_years, est, lower, upper)
 
-tbl <- year_incidence %>%
-  mutate_if(is.numeric, ~round(.,2)) %>%
-  tableGrob()
-
-p1 <- year_incidence %>%
+# tbl <- year_incidence %>%
+#   mutate_if(is.numeric, ~round(.,2)) %>%
+#   tableGrob()
+# 
+# p1 <- year_incidence %>%
+#   ggplot(aes(x=year, y=est, ymin=lower, ymax=upper)) +
+#   geom_pointrange() +
+#   labs(y = "Incidence Rate per 1,000 Person-Years (95% CI)", x="")
+# 
+# grid.arrange(p1, tbl)
+ 
+year_incidence %>%
   ggplot(aes(x=year, y=est, ymin=lower, ymax=upper)) +
   geom_pointrange() +
+  theme(axis.text.x = element_text(angle = 90)) +
   labs(y = "Incidence Rate per 1,000 Person-Years (95% CI)", x="")
 
+ggsave(file.path(image_path, "Other", "incidence", "annual_incience_rates.png"), width = 5, height = 4)
 
-grid.arrange(p1, tbl)
- 
+year_incidence %>%
+  filter(year < 2019) %>%
+  ggplot(aes(x=year, y=est, ymin=lower, ymax=upper)) +
+  geom_pointrange() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(y = "Incidence Rate per 1,000 Person-Years (95% CI)", x="")
+
+ggsave(file.path(image_path, "Other", "incidence", "annual_incience_rates2.png"), width = 5, height = 4)
+
+
+
+year_incidence %>%
+  #mutate_if(is.numeric, ~round(.,2)) %>%
+  kable(digits = 2, caption = "incidence rates per 1,000 person-years") %>%
+  kable_styling()
+
+
 ```
 
 
@@ -228,7 +256,8 @@ sur2 <- readRDS(file.path("Data", "Output", "sur0_redefined_categories.rda")) %>
            intakedt, last_visit,
            exposure_year, age_start_exposure, age_end_exposure, corrected_anydementia, dementia_now, male,race_white, degree, income_cat, apoe, bmi4) %>%
   mutate(
-    follow_up_years = round(age_end_exposure - age_start_exposure, 2)
+    #follow_up_years = round(age_end_exposure - age_start_exposure, 2)
+    follow_up_years = age_end_exposure - age_start_exposure
   )
 
 year_incidence2 <- get_incidence(dt = sur2, var = "exposure_year") %>%

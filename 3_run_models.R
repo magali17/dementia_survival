@@ -33,9 +33,21 @@ image_path <- file.path("..", "manuscript", "images")
 ######################################################################
 # LOAD DATA
 ######################################################################
-#sur <- readRDS(file.path("Data", "Output", "sur.rda")) 
 sur0 <- readRDS(file.path("Data", "Output", "sur_full_cohort.rda")) %>%
   filter(!is.na(apoe))
+
+# pm25_coverage <- 0.95
+sur0_pm25 <- readRDS(file.path("Data", "Output", "sur_full_cohort_no_coverage_restriction.rda")) %>%
+  filter(!is.na(apoe),
+         
+         # -->this causes NAs in MM below.
+         
+         # --> relabel/organize original survival dataset to long format???
+         
+         #exp_wks_coverage10_yr_ST >= pm25_coverage,
+         #exp_avg0=="exp_avg10_yr_ST"
+         )
+# sur0_pm25 %>% filter(study_id == first(study_id)) %>% View()
 
 ######################################################################
 # COMMON VARIABLES
@@ -51,11 +63,13 @@ main_exposure_duration <- 10
 #this is only being used for sensitivity analyses now
 load(file.path(output_data_path, "1_prep_data", "first_exposure_year.rda")) 
 
-freeze_date <- readRDS(file.path(output_data_path, "freeze_date.rda"))
+freeze_date <- readRDS(file.path(output_data_path, "1_prep_data", "freeze_date.rda"))
+
+# want to drop last 2 years w/ administrative censoring - incidence is artificially high b/c person w/o visits for 
+start_of_bad_yrs <- readRDS(file.path("Data", "Output", "1_prep_data", "start_of_bad_yr.rda"))
 ######################################################################
 # UPDATE DATA
 ######################################################################
-
 sur <- sur0 %>%
   group_by(pollutant) %>%
   mutate(
@@ -75,7 +89,9 @@ sur <- sur0 %>%
 
 # for multipollutant modeling
 sur_w <- sur %>%
-  select(-exp_avg0) %>%
+  select(-exp_avg0,
+         -ends_with(c("yr_MM", "yr_SP", "yr_ST"))  #this causes issues when making wide otherwise
+         ) %>%
   pivot_wider(names_from = c(model, pollutant), values_from = pollutant_prediction) 
 
 # 7/21/23: upated this b/c was having issues loading in Rmd
@@ -83,7 +99,62 @@ sur_w <- sur %>%
 saveRDS(sur_w, file = file.path("Data", "Output", "sur_w.rda"))
 
 
-#outcomes <- str_subset(names(sur_w), "_now$" )
+
+# sur_w %>%
+#   filter(exposure_duration==10,
+#          exposure_year < start_of_bad_yrs
+#          ) %>%  
+#   ggplot(aes(
+#     x=ST_pm25, y=MM_bc,
+#     #x=SP_pm25, y= ST_pm25, 
+#              col=exposure_year, group= exposure_year)) +
+#   geom_point(alpha=0.1) +
+#   geom_smooth() #+ geom_abline(slope = 1, intercept = 0)
+
+
+# # correlation between 10 yr MM BC & ST PM2.5 exposure. range ~ 0.35-0.5, so not super high. there's no temporal trend
+# sur_w %>%
+#   filter(exposure_duration==10,
+#          exposure_year < start_of_bad_yrs
+#   ) %>% 
+#   group_by(exposure_year) %>%
+#   summarize(
+#     r = cor(ST_pm25, MM_bc)
+#   ) %>%
+#   ggplot(aes(x=exposure_year, y=r)) + 
+#   geom_point() + 
+#   geom_smooth()
+
+
+######################################################################
+# SAME FOR PM2.5
+sur_pm25 <- sur0_pm25 %>%
+  group_by(pollutant) %>%
+  mutate(
+    pollutant_prediction = case_when(
+      grepl("ufp|ns_|pnc", pollutant) ~ pollutant_prediction/pnc_units,
+      pollutant == "bc" | grepl("_bc", pollutant) ~ pollutant_prediction/bc_units,
+      #grepl("bc", pollutant) ~ pollutant_prediction/bc_units,
+      pollutant == "no2" ~pollutant_prediction/no2_units,
+      pollutant == "pm25" ~pollutant_prediction/pm25_units, #TRUE ~ pollutant
+      TRUE ~ pollutant_prediction
+    )) %>%
+  ungroup()
+
+# for multipollutant modeling
+
+sur_w_pm25 <- sur_pm25 %>%
+  select(-exp_avg0,
+         -ends_with(c("yr_MM", "yr_SP", "yr_ST"))  #this causes issues when making wide otherwise
+         ) %>%
+  pivot_wider(names_from = c(model, pollutant), values_from = pollutant_prediction) 
+
+# sur_w_pm25 %>% filter(exposure_duration==10) %>% View()
+
+saveRDS(sur_w_pm25, file = file.path("Data", "Output", "sur_w_pm25.rda"))
+
+
+######################################################################
 outcomes <- c("dementia_now", "ad_now", "non_ad_now")
 
 # 2 pollutant models
@@ -143,10 +214,10 @@ all_ap_models <- c(
 st_pm2.5_models <- c(
   list(c("ST_pm25")), # could drop this since already doing
   # 2 pollutant models
-  list(c("ST_pm25", "MM_ufp_10_42")),
-  list(c("ST_pm25", "MM_bc")),
-  list(c("ST_pm25", "MM_no2")),
-  list(c("ST_pm25", "MM_ufp_10_42", "MM_bc", "MM_no2"))
+  list(c("MM_ufp_10_42", "ST_pm25")),
+  list(c("MM_bc", "ST_pm25")),
+  list(c("MM_no2", "ST_pm25")),
+  list(c("MM_ufp_10_42", "MM_bc", "MM_no2", "ST_pm25"))
   )
 
 
@@ -236,13 +307,9 @@ save(run_cox, run_cox_many_times, file = file.path("Data","Output", "cox_model_f
 ######################################################################
 # MODELS
 ######################################################################
-# drop last 2 years w/ administrative censoring - incidence is artificially high b/c person w/o visits for 
-# that particular year (~50%?) are not included in the denominator
-start_of_bad_yrs <- 2018 #2019 # 2019 is basically only ~1 yr since freeze happens in Mar 2020; also, 2018-2020 are binned together in models
-
 hrs_main <- sur_w %>%
   filter(exposure_year < start_of_bad_yrs)  %>%
-  mutate(cal_2yr = droplevels(cal_2yr)) %>% 
+  mutate(cal_2yr = droplevels(cal_2yr)) %>%   
   run_cox_many_times(., pollutant_predictors = all_ap_models)  %>%
   mutate(description = ifelse(grepl("pnc_20_36|ufp_36_1k|ns_", pollutant_predictors), "PNC by Size",
                               ifelse(grepl("pmdisc_sz", pollutant_predictors), "Particle Size",
@@ -352,10 +419,7 @@ hrs_effect_modification <- lapply(var, function(i){
   }) %>%
   bind_rows()
 
-
-
 # same as above but to get the p-value
-
 # --> need to recode to just pull out p-val, not HR & CI
 
 hrs_em_pval_ap_models <- c(
@@ -381,34 +445,50 @@ hrs_effect_modification_pval <- lapply(var, function(i){
   bind_rows()
 
 ######################################################################
+# SENSITIVITY: USE ST PM2.5 (INSTEAD OF SP) PM2.5 IN MODELS
+######################################################################
+hrs_st_pm25 <- sur_w %>%
+  filter(exposure_year < start_of_bad_yrs)  %>%
+  mutate(cal_2yr = droplevels(cal_2yr)) %>% 
+  run_cox_many_times(., pollutant_predictors = st_pm2.5_models) %>%
+  mutate(
+    description = "ST PM2.5"
+  )
+
+saveRDS(hrs_st_pm25, file.path(output_data_path, "hazard_ratios_alternative_st_pm2.5.rda"))
+
+######################################################################
 # SAVE HAZARD RATIOS
 ######################################################################
 hrs <- rbind(hrs_main, hrs_other_outcomes, hrs_other_exposure_periods, #hrs_extended_cohort, 
              hrs_no_ipw, hrs_baseline_age, hrs_calendar_axis, hrs_2010,
              hrs_dont_drop_last_2yr,
              hrs_effect_modification, hrs_effect_modification_pval)
+
 saveRDS(hrs, file.path(output_data_path, "hazard_ratios.rda"))
 
-message("done with 3_run_models.R")
-
 
 ######################################################################
-# ST PM2.5 WITH THIS DATASET - WRONG B/C BASED ON MM COVERAGE VARIABLE?
+# ALTERNATIVE ANALYSIS: ST PM2.5 MODELS
 ######################################################################
+# thes HRs use the full ST PM2.5 dataset, without special considerations for e.g. MM coverage variables
 
-pm2.5_hrs <- sur_w %>%
+# --> note: need to update code above to include an ST PM2.5 coverage threshold if we publish this
+
+pm2.5_hrs <- sur_w_pm25 %>%
   filter(exposure_year < start_of_bad_yrs)  %>%
-  mutate(cal_2yr = droplevels(cal_2yr)) %>% 
+  mutate(cal_2yr = droplevels(cal_2yr)) %>%
   run_cox_many_times(., pollutant_predictors = st_pm2.5_models)  %>%
   mutate(#description = ifelse(grepl("pnc_20_36|ufp_36_1k|ns_", pollutant_predictors), "PNC by Size",
   #                             ifelse(grepl("pmdisc_sz", pollutant_predictors), "Particle Size",
   #                                    ifelse(grepl("pnc_onrd", pollutant_predictors), "PNC, Onroad Model", "Main Analysis"
   #                                    )))
   description = "ST PM2.5"
-)  
+)
 
 saveRDS(pm2.5_hrs, file.path(output_data_path, "hazard_ratios_st_pm2.5.rda"))
 
-
+######################################################################
+message("done with 3_run_models.R")
 
 

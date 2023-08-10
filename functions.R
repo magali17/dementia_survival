@@ -88,7 +88,7 @@ compare_indicator_var <- function(var, dt = sur) {
 summary_table <- function(dt, var) {
 
   dt %>%
-    rename(var = var) %>%
+    rename(var = all_of(var)) %>%
     summarize(
       N = length(var),
       Min = min(var),

@@ -54,10 +54,16 @@ drop_pollutants <- c("uv_bc", "blue_bc", "green_bc", "red_bc",
                      "nox", "co2"
                      )
 
+# want to drop last 2 years w/ administrative censoring - incidence is artificially high b/c person w/o visits for 
+start_of_bad_yrs <- readRDS(file.path("Data", "Output", "1_prep_data", "start_of_bad_yr.rda"))
+
 sur <- readRDS(file.path("Data", "Output", "sur.rda")) %>% 
-  filter(!pollutant %in% drop_pollutants)
+  filter(!pollutant %in% drop_pollutants,
+         exposure_year < start_of_bad_yrs,
+         )
 
 exclusion_table <- readRDS(file.path("Data", "Output", "exclusion_table.rda")) 
+
 
 ```
 
@@ -115,8 +121,7 @@ exclusion_table2 <- exclusion_table %>%
 baseline_conc_avg <- sur %>%
   filter(exposure_duration==10,
          model== "MM",
-         pollutant %in% c("ufp_10_42", "bc", "no2"#, "pm25"
-                          )) %>% 
+         pollutant %in% c("ufp_10_42", "bc", "no2")) %>% 
   group_by(study_id) %>%
   filter(exposure_year==first(exposure_year)) %>% 
   group_by(pollutant, exposure_year) %>%
@@ -162,7 +167,7 @@ t1_labels <- list(
     race_white = "Race",
     degree = "Degree",
     nses_z_cx = "Neighborhood Disadvantage Index (NDI)",
-    apoe = "APOE4 Genotype",
+    apoe = "APOE Genotype",
     apoe_available = "Included in Main Analysis",
     model_wt = "IPW for Modeling Cohort",
     above_avg_ufp_10_42 = "Above Avg (PNC)",
@@ -197,8 +202,8 @@ t1_labels <- list(
                   '4' = "Master's",
                   '5' = "Doctorate",
                   '6' = "Other"),
-    apoe = list('1' = "Carriers",
-                '0' = "Non-Carriers"),
+    apoe = list('1' = "1+ e4 Allele",
+                '0' = "No e4 Allele"),
     apoe_available = list('TRUE' = "Included in Main Analysis",
                           'FALSE' = "Not Included in Main Analysis"),
     above_average_ufp_10_42 = list('FALSE' = "PNC Below Avg",
@@ -213,17 +218,7 @@ print("Baseline cohort characteristics stratified by whether 10-year average PNC
 t1read(filter(sur_person_t1, apoe_available==TRUE), t1_labels) %>%
   table1(~age_start_exposure + follow_up_years + male + race_white +degree + nses_z_cx + #income_cat + 
            apoe + model_wt + corrected_anydementia + ad_nincds + non_ad_dementia, #+ pollutant_prediction_ufp_10_42 + pollutant_prediction_no2 + pollutant_prediction_bc, #|above_average_ufp_10_42, 
-         data=., 
-         #groupspan=c(1,2,1)
-         # render.continuous = my.render.cont,
-         # render.categorical = my.render.cat
-         )
-
-#cat("\n")
-
-# # SI, by APOE STATUS/who is in the model
-# t1read(sur_person_t1, t1_labels) %>%
-#   table1(~age_start_exposure + follow_up_years + male + race_white +degree + nses_z_cx + apoe + model_wt + birth_cohort + corrected_anydementia + ad_nincds + pollutant_prediction_ufp_10_42 + pollutant_prediction_no2 + pollutant_prediction_bc + pollutant_prediction_pm25 | apoe_available, data=., )
+         data=.)
 
 ```
 
@@ -389,11 +384,15 @@ table(sur_person$model_wt>2)
 
 ## Exposure Fig/Table
 
+figure 
+
 ```{r}
 
 exposure_df <- sur %>%
   filter(exposure_duration==10,
-         !(grepl("PM25", pollutant, ignore.case = T) & grepl("MM|ST", model))) %>%
+         #!(grepl("PM25", pollutant, ignore.case = T) & grepl("MM|ST", model))
+         !(grepl("PM25", pollutant, ignore.case = T) & grepl("MM", model))
+         ) %>%
   mutate(
     model = ifelse(model== "SP", "2019 Spatiotemporal", 
                    ifelse(model=="ST", "Spatiotemporal", 
@@ -448,71 +447,45 @@ ggarrange(ufp_p, other_p, nrow = 2, labels = "auto", heights = c(2,1))
 
 ggsave(file.path(image_path, "SI", "exposure_plots.png"), height = 8, width = 8)
 
-
-
-
-# R freezes when this is run
-# 
-# exposure_table <- sur %>%
-#   filter(exposure_duration==10,
-#          !(grepl("PM25", pollutant, ignore.case = T) & grepl("MM|ST", model))
-#          ) %>%# View()
-#   group_by(pollutant, Model=model) %>%
-#   summary_table("pollutant_prediction") %>%
-#   mutate_at(vars(Min:Max), ~ifelse(grepl("ufp|bc", pollutant),
-#                                    format(., digits=0, scientific = F, big.mark = ","),
-#                                    format(., digits=2, scientific = F, big.mark = ",")
-#                                    )) %>%
-#   mutate_at(vars(N), ~format(., big.mark=",")) %>%
-#   label_pollutants() %>% 
-#   mutate(Analysis = ifelse(grepl("NanoScan|BC|NO2|CO2", pollutant) & Model=="MM", "Primary",
-#                            ifelse(grepl("PM2.5",pollutant), "Primary", 
-#                                   ifelse(grepl("nm|Size|onroad|_bc",pollutant), "Secondary",
-#                                          "Sensitivity")
-#                            )),
-#          Analysis = factor(sur, levels = c("Primary", "Sensitivity", "Secondary")),
-#          # Model = ifelse(Model=="MM", "2019 Mobile Monitoring", 
-#          #                ifelse(Model=="SP", "2019 Spatiotemporal", "Time-Varying Spatiotemporal")
-#          #                )
-#          Model = ifelse(Model=="MM", "2019 MM", 
-#                         ifelse(Model=="SP", "2019 ST", "Time-Varying ST")
-#                         )
-#          ) %>%
-#   
-#   #this is wrong - sums rows vs considering partial years
-#   select(-N) %>%
-#   
-#   rename(Pollutant = pollutant) %>%
-#   select(Analysis, Model, everything())
-# 
-# exposure_table %>%
-#   arrange(Analysis, Pollutant) %>%
-#   kable(caption = "Distribution of 10-year average pollutant predictions for the cohort (N=____ person-years). Table includes pollutants used in primary and sensitivity analyses.") %>%
-#   kable_styling()
-
-
-
-print("same as above but for the primary pollutants only")
-
-exposure_table %>%
-  filter(Analysis=="Primary") %>%
-  # filter((Model=="MM" & !grepl("PM2.5|DiSCmini|P-TRAK", Pollutant)) |
-  #          (Model=="SP" & grepl("PM2.5", Pollutant))
-  #        ) %>%
-  # mutate(Pollutant = gsub(", NanoScan", "", Pollutant),
-  #        Pollutant = factor(Pollutant, levels = c("PNC (pt/cm3)", "BC (ng/m3)", "NO2 (ppb)", "PM2.5 (ug/m3)"))
-  #        ) %>%
-  # arrange(Pollutant) %>%
-  
-  #select(-Model)%>%
-  kable(caption = "Distribution of 10-year average pollutant predictions for the cohort (N=___ person-years)") %>%
-  kable_styling()
-
 ```
 
+table
 
 
- 
+```{r}
+# sur %>%
+#   filter(exp_avg0 == "exp_avg10_yr_MM",
+#          pollutant %in% c("ufp_10_42", "bc", "no2")
+#          ) %>%  
+exposure_df %>%
+  filter(grepl("NO2|BC", pollutant) | grepl("Primary Analysis", pt_range),
+         model == "Mobile Monitoring"
+         ) %>%
+
+  group_by(pollutant, #Model=model
+           ) %>% 
+
+  #summary_table("pollutant_prediction") %>%
+  summarize(
+    py = sum(age_end_exposure - age_start_exposure), #note, rounding this changes py to 37,093, so don't do this until the end!
+    df_rows = length(pollutant_prediction),
+    Min = min(pollutant_prediction),
+    Q25 = quantile(pollutant_prediction, 0.25),
+    Mean = mean(pollutant_prediction),
+    Median = median(pollutant_prediction),
+    Q75 = quantile(pollutant_prediction, 0.75),
+    #SD = sd(pollutant_prediction),
+    #IQR = IQR(pollutant_prediction),
+    Max = max(pollutant_prediction)
+      ) %>%
+  kable(caption = "Distribution of 10-year average MM pollutant predictions for the cohort (N=____ person-years).", 
+        digits = 1, 
+        #format = list(big.mark  = ",")
+        ) %>%
+  kable_styling()
+
+
+```
 
 
 ```{r, eval=F}
@@ -564,7 +537,9 @@ sur %>%
          model==first(model),
          exposure_duration == first(exposure_duration),
          pollutant==first(pollutant),
-         dementia_now==1
+         dementia_now==1,
+         # # only keep people in main analysis
+         # exposure_year < start_of_bad_yrs,
          ) %>%  
   group_by(age_end_exposure) %>%
   summarize(N = n()) %>%
@@ -575,5 +550,27 @@ sur %>%
 ```
 
 
+# NDI vs Exposure
+
+are we over adjusting for SES, especially since NDI is continuous? In some instances, are the same/few people being compared over time? for MM, this would mean small exposure changes
+
+```{r}
+sur %>%
+  filter(#exposure_year < start_of_bad_yrs,
+         pollutant == "ufp_10_42",
+         exp_avg0 == "exp_avg10_yr_MM" #10 yr from MM
+         )  %>% 
+  
+  ggplot(aes(x=nses_z_cx, y=pollutant_prediction, 
+             #col=cal_2yr
+             )) + 
+  #facet_wrap(~cal_2yr) +
+  geom_point(alpha=0.05) + 
+  geom_smooth() + 
+  geom_smooth(method = "lm", linetype=2) + 
+  
+  labs(title = "NDI vs 10 yr MM UFP (10-420 nm PNC) exposure prediction.\nEach dot is a person-year")
+  
+```
 
  

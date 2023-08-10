@@ -30,13 +30,11 @@ editor_options:
 * reported a HR of dementia incidence per 1 ug/m3 increase in PM2.5 of **1.16 (1.03,1.31)**    
 
 * some differences between the latest analyses compared to hers are:
-  * a larger sample size
+  * different person years included (1994-~2018 in latest, vs 1994-2017)
   * an updated ST exposure model with more data & some slight model fit differences 
-  * Rachel used forward stepwise selection, I am using Lasso to develop APOE missingness weights. This should be minor since IPW did not change the results much anyways - weights were very close to 1 for both approaches.
+  * Rachel used forward stepwise selection, I used Lasso to develop APOE missingness weights. This should be minor since IPW did not change the results much anyways - weights were very close to 1 for both approaches.
   * Rachel's model adjusted for Census median household income, we are now using nses_z_cx:   
     * dementia(age time axis|apoe) ~ PM2.5(age) + degree + sex + median_household_income + race + 2yr_cal_time
-
-  * the current analytic cohort/dataset is based on the person-years with a coverage threshold > 0.5 for a 10 yr MM predictions since PM2.5 was initially a sensitivity analysis (**I could update this but I don't think it will make much of a difference**)
 
 # Overall Approach
 
@@ -46,6 +44,7 @@ editor_options:
 * compare ST PM2.5 results to the 2019 PM2.5 ST model, which adds exposure measurement error like the 2019 MM exposure models, although PM2.5 and UFPs are not strongly correlated, and their surfaces may have changed differently over time.  
 
 * could look at specitation data in the region to look at how PM2.5 composition has changed over time? 
+
 
 
 ```{r setup, include=FALSE, ECHO=F}
@@ -70,22 +69,63 @@ set.seed(1)
 theme_set(theme_bw())
 theme_update(legend.position = "bottom")
 
+image_path <- file.path("..", "manuscript", "images", "Other", "PM2.5")
+if(!file.exists(image_path)) {dir.create(image_path)} 
+
 ######################################################################
 # NEW EXPOSURE MODELS 
 ######################################################################
 fp <- file.path("Data", "Output")
 
-#load(file.path(fp, "sur_w.rda"))
-sur_w <- readRDS(file.path(fp, "sur_w.rda"))
-#load(file.path(fp, "cox_model_fns.rda"))
+#sur_w <- readRDS(file.path(fp, "sur_w.rda"))
+
+load(file.path("Data", "Output", "trap_model_units.rda"))
+
+sur0 <- readRDS(file.path("Data", "Output", "sur_full_cohort_no_coverage_restriction.rda"))  
+
+sur <- sur0 %>%
+  group_by(pollutant) %>%
+  mutate(
+    pollutant_prediction = case_when(
+      grepl("ufp|ns_|pnc", pollutant) ~ pollutant_prediction/pnc_units,
+      pollutant == "bc" | grepl("_bc", pollutant) ~ pollutant_prediction/bc_units,
+      #grepl("bc", pollutant) ~ pollutant_prediction/bc_units,
+      pollutant == "no2" ~pollutant_prediction/no2_units,
+      pollutant == "pm25" ~pollutant_prediction/pm25_units, #TRUE ~ pollutant
+      TRUE ~ pollutant_prediction
+    )) %>%
+  ungroup() %>%
+  drop_na(apoe) 
+
+# --> no need to worry about exp wks coverage b/c it will be dropped out when merged w/ old dt??
+
+
+# for multipollutant modeling
+sur_w <- sur %>%
+  select(-exp_avg0,
+         -ends_with(c("yr_MM", "yr_SP", "yr_ST"))  #this causes issues when making wide otherwise
+         ) %>%
+  pivot_wider(names_from = c(model, pollutant), values_from = pollutant_prediction) 
+
+#saveRDS(sur_w, file = file.path("Data", "Output", "sur_w_no_coverage_lmt.rda"))
+
+# sur_w %>% filter(study_id==first(study_id), exposure_duration==10) %>% View()
+
+
+
+
 load(file.path(fp, "cox_model_fns.RData"))
 
 main_exposure_duration <- 10
-start_of_bad_yrs <- 2019 
+# 2018
+start_of_bad_yrs <- readRDS(file.path("Data", "Output", "1_prep_data", "start_of_bad_yr.rda")) # old: 2019 
  
 sur <- sur_w %>%
   filter(exposure_duration==main_exposure_duration) %>%
-  drop_na(ST_pm25)
+  drop_na(ST_pm25) %>%
+  mutate(dataset="new" )
+# sur %>% filter(study_id==first(study_id)) %>% View()
+
 
 ######################################################################
 # COMPARE TO OLD EXPOSURE MODELS
@@ -97,18 +137,63 @@ old_sur <- readRDS(file.path("Data", "phd_analysis", "20210203 Survival", "dem.w
          apoe, male, income_cat, race_white, degree, ST_pm25 = pm25_10yr, model_wt)  %>%
   mutate(dataset = "old",
          exposure_duration = 10)  %>%
-  drop_na(ST_pm25) %>%  
+  drop_na(ST_pm25,
+          apoe #when don't do this, the "old" dataset looks like it has a lot more data (rows) than the first
+          ) %>%  
   # why do i have to do this?
   distinct()
+######################################################################
+# TEST - old suvival dataset person-years
+## note, Shaffer et al. 2021 reported 41,329 py, but this was the number of rows, not actual follow-up time
+old_n <- old_sur %>%
+  mutate(py = age_end_exposure - age_start_exposure) %>%
+  summarize(analysis = "old",
+            persons = length(unique(study_id)),
+            tot_py = sum(py),
+            years = paste0(range(exposure_year), collapse = "-"),
+            data_rows = n()
+            )
+## full analysis that we would re-run again
+new_n <- sur %>% 
+  filter(exposure_year < start_of_bad_yrs) %>%
+  mutate(py = age_end_exposure - age_start_exposure) %>%
+  summarize(analysis = "new",
+            persons = length(unique(study_id)),
+            tot_py = sum(py),
+            years = paste0(range(exposure_year), collapse = "-"),
+            data_rows = n()
+            )
 
-old_ids <- distinct(old_sur, study_id, exposure_year)
+print("these numbers are to compare Rachels' analysis to the analysis with the latest dataset (no MM considerations)")
+rbind(old_n, new_n) %>%
+  kable(caption = "comparison of old and latest analysis", digits = 0,
+        col.names = c("Analysis", "Persons", "Person-Years", "Years", "Dataset Rows")
+        ) %>%
+  kable_styling()
 
-sur_new_old_yrs <- left_join(old_ids, mutate(sur, dataset="new" )) %>%
-  select(names(old_sur))
+######################################################################
+# old_ids <- distinct(old_sur, study_id, exposure_year)
+# 
+# sur_new_old_yrs <- left_join(old_ids, sur) %>%
+#   select(names(old_sur))
+##### ALTERNATIVE - USE OLD DT (BAD FOLLOW-UP TIME IN THE END, some ppl now have APOE (weights are now diff), ETC.)
+# this ensure we use the same: FU time (although predictions are for 12 months at times), APOE weights....
+sur_new_old_yrs <- left_join(select(old_sur, -ST_pm25),
+                     select(sur, study_id, exposure_year, ST_pm25), by=c("study_id", "exposure_year")
+                     ) %>%
+  mutate(dataset="new")
 
 comp <- rbind(old_sur, sur_new_old_yrs) %>%
   # is this b/c new dataset has more missingness given our threshold limites?
   drop_na(ST_pm25)
+
+# comp %>% filter(is.na(ST_pm25)) %>% View()
+# 
+# # --> why do some in the new dt still have missing ST_pm2.5 predictions?? is this a new model/missing predictions issue?
+# comp %>% filter(study_id==1029) %>% View()
+
+
+
 
 ######################################################################
 # COMMON VARIABLES
@@ -129,12 +214,15 @@ g4_start <- 2013
 # OLD VS NEW MODELS   
 
 * these analyses use the new data predictions but only for the old Study IDs and years to increase comparability 
-* The current TRAP survival analyses use a coverage threshold of 0.5, so the new dataset has slightly fewer person-years than the original, which didn't have a threshold, but <3% of the person-years had a threshold < 98% anyway.
-
+* I merged the old & new datasets by simply replacing the old predictions w/ the new predictions.    
+  * this means APOE, follow-up time, etc. remain the same as before 
 
 ```{r}
+# this difference was much greater before i did drop_na(apoe) form sur_old. why did the old dataset have predictions for missing
 comp %>%
-  drop_na(ST_pm25) %>%
+  drop_na(ST_pm25,
+          apoe
+          ) %>%
   group_by(dataset) %>%
   summarize(rows = n()) %>%
   kable() %>%
@@ -154,7 +242,10 @@ comp %>%
   geom_boxplot() + 
   labs(y = "Predicted 10 yr Exposure", col = "PM2.5 ST Model")
 
-print("there are some strange patterns in the extremes")
+ggsave(file.path(image_path, "old vs new ST PM2.5.png"), width = 9, height = 6)
+
+
+  print("there are some strange patterns in the extremes")
 
 comp %>%
   select(study_id, exposure_year, dataset, ST_pm25) %>%  
@@ -169,6 +260,7 @@ comp %>%
   geom_smooth() + 
   geom_abline(slope = 1, intercept = 0) +
   labs(title="10 yr PM2.5 predictions")
+
   
 ```
 
@@ -277,20 +369,19 @@ models_old_new_time %>%
   facet_wrap(~pollutant_predictors) +
   geom_vline(xintercept = 1, alpha=0.5, linetype=2) +
   geom_pointrange(position = position_dodge2(width = 0.3)) + 
-   labs(title = "Dementia incidence HRs for 10 yr Exposures (no other pollutants in models)",
+   labs(title = "Dementia incidence HRs for 10 yr Exposures\n(no other pollutants in models)",
          x= "HR", y="Person-Years", col = "ST PM2.5 Version")
- 
+
+ggsave(file.path(image_path, "old vs new ST PM2.5 over time.png"), width = 9, height = 6)
+
 ```
 
 **why is the old model different from what Rachel reported?**    
 * the "old" PM2.5 model dataset came from my files, not Rachel's (?)   
 * the new models include exposures for the full 2018 year (more person-years)
-*
-
 
 
 ```{r}
-
 # show all year/main model results
 models_old_new_time %>%
   filter(grepl("^ST_|SP_|^MM_", covariate),
@@ -352,12 +443,8 @@ models_yr_specific %>%
 
 # ANALYSES WITH NEW MODELS ONLY
 
-```{r}
-## Exposure Coverage Threshold
-
-# --> 
-
-```
+* this uses a similar/identical dataset to what we would use if we were re-running the PM2.5 analysis (e.g., person-years are not restricted to those with high coverage values for the 10 yr MM exposure).
+  * although we would likely implement a coverage threshold of ~ 0.95% (I am not usig one currently)
 
 
 ## Exposures Over Time
@@ -365,6 +452,22 @@ models_yr_specific %>%
 Comparison of assigned 10 yr participant exposures using the ST PM2.5 vs 2019 SP PM2.5
 
 * **these results make a temporal pattern less clear**
+
+```{r}
+sur %>%
+  drop_na(apoe, ST_pm25) %>%
+  mutate(fu_time = age_end_exposure - age_start_exposure) %>%
+  summarize(
+    rows = n(),
+    total_person_years = sum(fu_time)
+  ) %>%
+  kable(caption = "rows & person-years in current ST PM2.5 dataset (drops missing predictions & missing APOE)", 
+        digits = 0) %>%
+  kable_styling()
+  
+```
+
+
 
 ```{r, fig.width=8}
 sur %>%
@@ -375,8 +478,13 @@ sur %>%
   
   ggplot(aes(x=exposure_year, y=value, col=name)) + 
   geom_boxplot() + 
-  labs(y="10 yr Participant Exposure", col="PM2.5 Model")
+  labs(y="10 yr Participant Exposure", col="PM2.5 Model",
+       x = "Exposure Year"
+       )
   
+ggsave(file.path(image_path, "ST vs SP PM2.5 over time.png"), width = 10, height = 6)
+
+
 sur %>%
   select(study_id, exposure_year, SP_pm25, ST_pm25) %>%
   drop_na() %>%
@@ -568,10 +676,18 @@ models_time <- lapply(pollutants, function(x) {
     run_cox(.,pollutant_predictors = x, event_indicator = "dementia_now") %>%
     mutate(description = paste0("Stop early: 1994-2017"))
 
+  
+  m8 <- sur %>%
+    filter(exposure_year >= 2000, # start of expansion when incidnece rates seem to level off
+           exposure_year <=2017) %>%
+    mutate(cal_2yr = droplevels(cal_2yr)) %>% 
+    run_cox(.,pollutant_predictors = x, event_indicator = "dementia_now") %>%
+    mutate(description = paste0("Stable incidence rates: 2000-2017"))
+
   #pm5[1,]
   
   # combine all results in a df
-  lapply(c(1:7), function(x) {
+  lapply(c(1:8), function(x) {
     get(paste0("m", x))
     }) %>%
     bind_rows() %>%
@@ -589,14 +705,20 @@ models_time <- lapply(pollutants, function(x) {
 ```{r}
 ############## HR PLOTS ##############
 models_time %>%
-  filter(grepl("^ST_|SP_|^MM_", covariate)) %>%
+  filter(grepl("^ST_|SP_|^MM_", covariate),
+         !(covariate== "SP_pm25" & description == "1994-2000")
+         ) %>%
 
   ggplot(aes(y=description, x=hr, xmin=lower95, xmax=upper95, col=exposure_model)) +
-  facet_wrap(~pollutant_predictors) +
+  facet_wrap(~pollutant_predictors, scales="free") +
   geom_vline(xintercept = 1, alpha=0.5, linetype=2) +
   geom_pointrange(position = position_dodge(width = 0.3)) + 
-   labs(title = "HRs for 10 yr Exposures (no other pollutants in models)",
+  #xlim(c(0.5, 1.9)) +
+   labs(title = "HRs for 10 yr Exposures (no other pollutants in models)", 
+        subtitle = "SP PM2.5 for 1994-2000 is excluded b/c of large CI. HR is: 1.8 (1.1-3.1)",
          x= "HR", y="Person-Years Included", col = "Exposure Model", shape="")
+
+ggsave(file.path(image_path, "new ST PM2.5 over time.png"), width = 9, height = 6)
 
 ```
 
@@ -619,7 +741,7 @@ analysis w/ subset of low concentration areas during the earlier years. Models a
 
 **note: this analysis is strange b/c some ppl could end up in the high & low categories in different years**
 
-```{r, results="hide"}
+```{r, results="hide", eval=F}
 pollutant_list2 <- c("ST_pm25")
 
 models_low_conc <- lapply(pollutant_list2, function(x) {
@@ -650,7 +772,7 @@ models_low_conc <- lapply(pollutant_list2, function(x) {
 
 ```
 
-```{r}
+```{r, eval=F}
 models_low_conc %>%
   filter(grepl("^ST_|SP_|^MM_", covariate)) %>%
 
@@ -713,9 +835,7 @@ unique(sp2019$Local.Site.Name)
 
 ```
 
-
-
-
+ 
 
 
 
