@@ -34,7 +34,8 @@ pacman::p_load(kableExtra, tidyverse, table1, lubridate,
                ggpubr, #stat_cor() for ggplot
                GGally, # ggpairs()
                ggmap, sf, ggspatial, cowplot, #mapping...adding scales, N arrows
-               PRISMAstatement # sample size left
+               PRISMAstatement, # sample size left
+               survival, survminer
                )    
  
 # ggplot settings
@@ -573,4 +574,88 @@ sur %>%
   
 ```
 
- 
+# Proportional Hazards assumption     
+
+* apoe
+* sex 
+* race (White vs. People of Color)
+* ten-year average PM2.5
+* calendar year (two-year categories)
+* education
+* NDI 
+
+
+Plots checking to see if the proportional hazards assumption is held.   
+1. we should be able to multiply the baseline cumulative hazard function by a constant to get all of th other curves    
+2. **Crossing survival curves indicate non-proportinality** though they cannot tell you (if no crossing is occurring) if the proportinal hazards assumption *is* met.
+
+* curves that end w/ horizontal step indicate censoring events, while those that end in vertical lines indicate an event
+
+in ggsurvplot() plots, ticks on the curves are individuals (person-years) that are censored. are horizontal ticks when there was an event And somebody else was censored/left the study?
+
+
+# --> how to look at time-varying UFP/PM2.5? baseline?
+
+#--> is cum hazard -log(esitmate)?? or -log10(estimate)? or something else?
+
+```{r, fig.width=8, fig.height=8}
+adjusted <- c( "apoe", "male", "race_white",  "degree", "nses_z_cx", "cal_2yr"#, "pm25_bin"
+              )
+
+sur_hazard <- sur %>%
+  select(study_id, age_start_exposure, age_end_exposure, dementia_now, all_of(adjusted)) %>%
+  distinct() %>%
+  mutate(
+    nses_z_cx = cut(nses_z_cx, breaks = 4, include.lowest = T),
+    #cal_2yr = cut(as.numeric(as.character(cal_2yr)), breaks = 4, include.lowest = T),
+    #positive_time = age_end_exposure > age_start_exposure
+  )  
+
+#create a survival object
+s.dem <- Surv(
+  time = sur_hazard$age_start_exposure, 
+  time2 = sur_hazard$age_end_exposure, 
+  event = sur_hazard$dementia_now)
+
+
+pdf(file = file.path(image_path, "Other", "cumulative_hazard_functions.pdf"))
+
+# x=adjusted[1]
+lapply(adjusted, function(x) {
+
+  print(x)
+  fit <- survfit(as.formula(paste("s.dem ~", x)), data = sur_hazard) %>%
+    broom::tidy() %>%
+    # --> correct???
+    mutate(cum_haz = -log10(estimate))
+  
+  p <- ggplot(fit, aes(x=time, y=cum_haz, col=strata)) + 
+    geom_line() +
+    #geom_ribbon(aes(ymin=conf.low, ymax=conf.high), alpha=.25)
+    labs(title = x, 
+         subtitle = "this should be the cumulative hazard (vs surivival)?"
+         )
+  
+  
+  # #--> has error for some reason
+  # #cumulative hazards plot
+  # p <- ggsurvplot(#data = sur_hazard, 
+  #                 fit = fit,
+  #            fun = "cumhaz", conf.int = F, 
+  #            #plot faster. #don't draw ticks along curve
+  #            censor=F,
+  #            risk.table = T,
+  #            xlim=c(65,110),
+  #            title = x
+  #            )
+
+  print(p)
+
+})
+
+dev.off()
+
+```
+
+
+
