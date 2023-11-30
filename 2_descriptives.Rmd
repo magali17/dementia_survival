@@ -113,7 +113,21 @@ exclusion_table2 <- exclusion_table %>%
 
 ```
 
- 
+# --> why does T1 have time nera 0 but start/end visits say ~2 yrs differnce? 
+1. don't trust intageage & last_visit_age variables
+2. person-years may have been dropped for some people b/c of low exposure coverage. when. look in 1_prep_data.R (~line 243), there are only 3 ppl with only 1 row (exposure year) of data. Thus, some time must be dropped later for people.
+
+```{r}
+
+# sur %>% 
+#   filter(pollutant=="ufp_10_42", exposure_duration==10, model=="MM") %>%
+#   group_by(study_id) %>%
+#   mutate(n=n()) %>% 
+#   filter(n<=1)  
+
+
+```
+
 
 # Table 1
  

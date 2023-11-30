@@ -178,46 +178,54 @@ sur0.1 <- sur0 %>%
 
 
 ######################################################################
-# TEST - diagnosis counts
-test <- sur0.1 %>%
-  mutate(
-    corrected_dsmivdx = ifelse(is.na(corrected_dsmivdx), 0, corrected_dsmivdx),
-    # vad_dementia = ifelse(corrected_dsmivdx==2, 1, 0),
-    # mixed_dementia = ifelse(corrected_dsmivdx==5, 1, 0),
-    # other_dementia = ifelse(corrected_dsmivdx %in% c(3,4,6), 1, 0),
-    # non_ad_dementia = ifelse(corrected_dsmivdx %in% c(2:6), 1, 0),
-    final_nindx = ifelse(is.na(final_nindx), 0, final_nindx),
-    ### may need to change age_last_visit to age_act for sensitivity analyses
-    #dementia_now = ifelse(age_end_exposure < age_last_visit, 0, anydementia),
-    ad_nincds = ifelse(final_nindx %in% c(1,2), 1, 0),
-    ) %>%
-  distinct(study_id, corrected_dsmivdx, ad_nincds)  %>%
-  mutate(
-    corrected_dsmivdx = case_when(
-      corrected_dsmivdx==0 ~ "No dementia",
-      corrected_dsmivdx==1 ~ "AD",
-      corrected_dsmivdx==2 ~ "Vascular",
-      corrected_dsmivdx==3 ~ "Other medidcal",
-      corrected_dsmivdx==4 ~ "Substance",
-      corrected_dsmivdx==5 ~ "Mixed",
-      corrected_dsmivdx==6 ~ "Other/unknown",
-      TRUE ~ NA),
-    ad_nincds = ifelse(ad_nincds==1, "possible/probable AD",
-                       ifelse(ad_nincds==0, "No AD", NA
-                       ))) %>%
-  rename(NINCDS = ad_nincds, DSMIV=corrected_dsmivdx)
-  
-test %>%
-  pivot_longer(-study_id) %>%
-  group_by(name, value) %>%
-  summarize(n = n()) %>%
-  arrange(desc(name)) %>%
-  kable(caption = "dementia by diagnosis criteria") %>%
-  kable_styling()
+# # TEST - diagnosis counts
+# test <- sur0.1 %>%
+#   mutate(
+#     corrected_dsmivdx = ifelse(is.na(corrected_dsmivdx), 0, corrected_dsmivdx),
+#     # vad_dementia = ifelse(corrected_dsmivdx==2, 1, 0),
+#     # mixed_dementia = ifelse(corrected_dsmivdx==5, 1, 0),
+#     # other_dementia = ifelse(corrected_dsmivdx %in% c(3,4,6), 1, 0),
+#     # non_ad_dementia = ifelse(corrected_dsmivdx %in% c(2:6), 1, 0),
+#     final_nindx = ifelse(is.na(final_nindx), 0, final_nindx),
+#     ### may need to change age_last_visit to age_act for sensitivity analyses
+#     #dementia_now = ifelse(age_end_exposure < age_last_visit, 0, anydementia),
+#     ad_nincds = ifelse(final_nindx %in% c(1,2), 1, 0),
+#     ) %>%
+#   distinct(study_id, corrected_dsmivdx, ad_nincds)  %>%
+#   mutate(
+#     corrected_dsmivdx = case_when(
+#       corrected_dsmivdx==0 ~ "No dementia",
+#       corrected_dsmivdx==1 ~ "AD",
+#       corrected_dsmivdx==2 ~ "Vascular",
+#       corrected_dsmivdx==3 ~ "Other medidcal",
+#       corrected_dsmivdx==4 ~ "Substance",
+#       corrected_dsmivdx==5 ~ "Mixed",
+#       corrected_dsmivdx==6 ~ "Other/unknown",
+#       TRUE ~ NA),
+#     ad_nincds = ifelse(ad_nincds==1, "possible/probable AD",
+#                        ifelse(ad_nincds==0, "No AD", NA
+#                        ))) %>%
+#   rename(NINCDS = ad_nincds, DSMIV=corrected_dsmivdx)
+#   
+# test %>%
+#   pivot_longer(-study_id) %>%
+#   group_by(name, value) %>%
+#   summarize(n = n()) %>%
+#   arrange(desc(name)) %>%
+#   kable(caption = "dementia by diagnosis criteria") %>%
+#   kable_styling()
 
 
 ######################################################################
+# sur0.1 %>%
+#   filter(is.na(nses_z_cx)) %>% 
+#   group_by(study_id) %>%
+#   slice(1) %>% 
+#   select(study_id, intakedt, exposure_year, tr_med_inc_hshld, nses_z_cx, exp_wks_coverage01_yr_MM,exp_wks_coverage05_yr_MM, exp_wks_coverage10_yr_MM, contains("exp_wks_coverage"), everything()) %>%
+#   
+#   View()
 
+######################################################################
 rm(sur0)
 
 sur0.1 <- sur0.1 %>%
@@ -231,6 +239,18 @@ sur0.1 <- sur0.1 %>%
                               as.numeric(last_visit - birthdt)/365,
                               as.numeric(as.Date(paste0(exposure_year, "-12-31")) - birthdt)/365),
   )
+
+# sur0.1 %>%
+#   filter(pollutant =="ufp_10_42",
+#          last_visit > intakedt
+#          ) %>%
+#   drop_na(exp_avg10_yr_MM) %>%
+#   select(study_id, intakedt, last_visit, age_start_exposure, age_end_exposure) %>%
+#   group_by(study_id) %>%
+#   mutate(n=n()) %>%
+#   filter(n<=1) %>%
+#   View()
+
 
 exclusion_table <- count_remaining_sample(sur0.1, description. = "Full cohort")
 
