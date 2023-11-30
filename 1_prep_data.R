@@ -64,7 +64,7 @@ count_remaining_sample <- function(dt, description., notes.=NA) {
 ######################################################################
 # LOAD DATA
 ######################################################################
-folder_date <- "20230324"
+folder_date <- "20231013" #"20230324"
 dt_path <- file.path("Data", "Raw", "Issue_14_for_release", folder_date, "issue_014.rda")
 
 if(file.exists(dt_path)) {
