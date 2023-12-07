@@ -251,11 +251,7 @@ sur0.1 <- sur0.1 %>%
 #   filter(n<=1) %>%
 #   View()
 
-
 exclusion_table <- count_remaining_sample(sur0.1, description. = "Full cohort")
-
-# checking nses_z_cx - why do 193 participants have NAs?
-# distinct(sur0.1, study_id, nses_z_cx, exp_wks_coverage10_yr_MM) %>% mutate(n = sum(is.na(nses_z_cx))) %>% View()
 
 sur <- sur0.1 %>%
   #don't use non-final variables
@@ -451,7 +447,7 @@ apoe_male_prob <- predict(apoe_male_m, type = "response")
 apoe_wts <- select(apoe, study_id) %>%
   mutate(model_wt = apoe_male_prob/apoe_available_prob)
 # summary(apoe_wts$model_wt)
-# table(apoe_wts$model_wt>3) #ppl w/ high weights
+# table(apoe_wts$model_wt>3) #1 person 
 
 # add to datasets 
 sur <- left_join(sur, apoe_wts) %>% ungroup()
@@ -471,10 +467,23 @@ saveRDS(sur, file.path("Data", "Output", "sur_TEMP.rda"))
 ######################################################################
 # COVERAGE VARIABLE
 ######################################################################
-# setting this lower b/c MM coverage starts falling in 1997 & before; max is ~0.6 in 1994 since "first" MM year is 1988?
+# OLD: had previusly set this lower b/c MM coverage started falling in 1997 & before; max was ~0.6 in 1994 since "first" MM year is 1988?
 
-# upated 5/5/2023
-coverage_threshold <- 0.5 #0.95
+# -----> START HERE
+## TEST
+# sur %>% 
+#   filter(pollutant == "ufp_10_42",
+#          
+#          ) %>%
+#   group_by(exposure_year) %>% 
+#   summarize(
+#     n=n(), 
+#     Min=min(exp_wks_coverage10_yr_MM),
+#     mean = mean(exp_wks_coverage10_yr_MM),
+#     max = max(exp_wks_coverage10_yr_MM)
+#     )
+
+coverage_threshold <- 0.5  #0.95
 
 # test good_ids w
 main_analysis_id <- sur %>%
@@ -671,6 +680,7 @@ sur_person <- left_join(complete_fu_yrs, new_sur_person)
 saveRDS(sur3, file.path("Data", "Output", "sur.rda"))
 saveRDS(sur_person, file.path("Data", "Output", "sur_person.rda"))
 saveRDS(exclusion_table, file.path("Data", "Output", "exclusion_table.rda"))
+write.csv(exclusion_table, file.path("Data", "Output", "exclusion_table.csv"), row.names=F)
 
 #PM2.5 & others
 saveRDS(exclusion_table_pm25, file.path("Data", "Output", "exclusion_table_st_pm2.5.rda"))

@@ -241,7 +241,7 @@ t1read(filter(sur_person_t1, apoe_available==TRUE), t1_labels) %>%
 # Prediction Maps
 
 
-```{r, eva=F}
+```{r, eval=F}
 # don't need these anymore??
 
 ## mapping
