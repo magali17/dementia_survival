@@ -138,7 +138,7 @@ baseline_conc_avg <- sur %>%
          model== "MM",
          pollutant %in% c("ufp_10_42", "bc", "no2")) %>% 
   group_by(study_id) %>%
-  filter(exposure_year==first(exposure_year)) %>% 
+  filter(exposure_year==min(exposure_year)) %>% 
   group_by(pollutant, exposure_year) %>%
   mutate(
     mean_baseline_conc = mean(pollutant_prediction),
